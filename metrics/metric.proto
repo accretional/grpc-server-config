@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package logging;
+
+option go_package = "github.com/accretional/grpc-server-config/logging/pb";
+
+enum MetricKind {
+  Raw = 0;
+  // Start with https://prometheus.io/docs/concepts/metric_types/
+  Counter = 1;
+  Gauge = 2;
+  Histogram = 3;
+  Summary = 4;
+}
+
+message MetricDescriptor {
+  string name = 1;
+  string description = 2;
+  MetricKind kind = 3;
+  // todo add reporting endpoint, data types, etc.
+}
+
+// TODO probably make this more like https://github.com/googleapis/googleapis/blob/master/google/api/servicecontrol/v1/metric_value.proto
+message Metric {
+  // Same as the name from the MetricDescriptor, which can be looked up for additional info
+  string name = 1;
+  // Borrowing from google's monitoring stack a bit (https://cloud.google.com/blog/products/management-tools/introducing-monitoring-query-language-or-mql but honestly their external resources for this stuff are not very good - try searching for papers/publications about their Monarch system instead, eg https://research.google/pubs/monarch-googles-planet-scale-in-memory-time-series-database/)
+  repeated string labels = 2;
+  // TODO replace with some oneof wrapper around some primitives. Consider this a placeholder implementation for now.
+  repeated google.protobuf.Any contents = 3;
+}
