@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package logging;
+
+option go_package = "github.com/accretional/grpc-server-config/logging/pb";
+
+enum LogLevel {
+  // NB I think we should use this log level as a way to hide, soft-delete, or mark for deletion
+  None = 0;
+  // Info, Warn, Error are user-generated and used to distinguish between nominal/expected states (Info), undesirable states (Warn), and invalid/rejected states (Error)
+  // Use Info for routine or non-problematic log messages. Default to using this and only escalate to Warn/Error if there is something that someone needs to see. Default to NOT logging useless/overly noisy/poor signal/noise logs if possible, because logs (and the load from moving them around) are not free.
+  Info = 1;
+  // Things you may want to use Warn for: outdated package or upgrade notices, missing/ignored/suboptimal configurations, compute resources running out, using something unimplemented/unsupported/unstable
+  // Warn logs should always be user-facing and actionable/fixable. DO NOT use warn for routine (eg server shutdown) or unactionable/expeccted (eg logging the server build date) states.
+  // A warn log should mean "you may want to look into this" or "you should look into this but it's not urgent" not just "high visibility" or "data that may or may not be concerning" (if the data isn't bad use Info; only use Warn if it actually is bad)
+  Warn = 2;
+  // Error logs should also be user-facing and actionable/fixable but they should mean "this shouldn't happen" or "can't do that" or "something failed". "you should look into this" or "you should fix this"
+  // DO NOT use Error for trivially recoverable or actually-expected states. DO NOT use Error for low-level development/implementation errors. Don't get confused by golang error handling and think you need to emit an Error structured log every time they happen.
+  // Error logs need to be meaningful to clients - that is actually extremely important because they are a major part of the product UX/interface exposed to users. DO NOT write error logs that use internal jargon/terms or concern themselves with non-customer-facing errors.
+  // DO write Error logs that clearly explain what went wrong and ALWAYS enough information to communicate what should be done to fix it (if possible). DO include 1-2 links to external resources (eg documentation or one of the things that went wrong/was implicated, eg the client server) to help users if relevant.
+  Error = 3;
+  // use for shutdown logs and fatal/unrecoverable errors. DO NOT use Fatal log levels for recoverable or "related" errors (those should be Error; the Fatal logs should only be for the state/condition/error that is specifically unrecoverable and causnig a shutdown/cleanup)
+  Fatal =  4;
+  // TBD but I think we should allow Alerts to be filed directly (and when filed the "normal" way out-of-the-loop, also filed this way to bring them into the logging world) from code. This would be pretty useful for development/prototyping and a good way to avoid the cruft of doing it indirectly (eg by having something watching for a specific metric or log contents, because only that type of structure can file alerts) 
+  Alert = 5;
+  // TBD but I think Alarms should be basically just Alerts, but urgent/time-sensitive. In my mind an alert may just get pushed via notifications/email some report in some cases, but an alarm is something that means "this must be handled/mitigated ASAP" or "you need to react to this problem and triage its urgency/importance ASAP, and then can turn off the alarm"
+  Alarm = 6;
+  // Infrastructure / non-user logging from an underlying service provider
+  // If something is worth warning/erroring, we should just use regular Warn/Error logs I think, because they're relevant to the user in the same way their own would be.
+  System = 7;
+  // TBD but I think while System logs should be automated/come from software, actual messages from the platform (eg about credits expiring or some upcoming service disruption) should be categorized as Notices (or something similar).
+  // But it also sounds reasonable for notices to be used for any hand-written log (even if bulk sent, it was done outside the context of infrastructure/the normal application). Without good tooling would be pretty clunky for humans but could be very useful if given a CLI; also seems very useful for LLMs.
+  Notice = 8;
+  // Not sure exactly how to use this yet, need to brush up on how other systems use it
+  Debug = 9;
+  // Also need some new ones for LLMs: maybe Note or Report . The idea being that LLMs and/or their harness can fire off bespoke logs while debugging or checking/changing/deploying something so that their logs/progress gets tracked in the same stream as the other software. But they can probably just re-use Notice though.
+}
+
+message Log {
+  LogLevel level = 1;
+  string contents = 2;
+  // TODO replace with our own timestamp type
+  google.protobuf.Timestamp created_at = 3;
+  // TODO need location/source/provenance
+  // TODO need some kind of identity for the message (eg the service account)
+}
