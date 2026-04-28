@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package resource;
+
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+// Resource is a typed, persistently-identified object — analogous to a file
+// descriptor but with a persistent numeric id, an explicit ownership chain,
+// and a type schema resolved via URI rather than a bare string.
+//
+// Resources replace Google's MonitoredResource {string type; map<string,string> labels}.
+// Instead of a stringly-typed identifier whose valid label keys depend on the
+// type string, a Resource carries real persistent identity and resolves its
+// type schema through a FileDescriptorProto URI.
+message Resource {
+  // Persistent numeric identifier. Analogous to a file descriptor id;
+  // survives renames and remains stable across the resource's lifetime.
+  int64 id = 1;
+
+  // Human-readable name for this resource instance (e.g. "web-01").
+  string name = 2;
+
+  // Ownership chain. May correspond to a system resource or upstream session.
+  // For example, a VM resource may be owned by a project resource.
+  repeated Resource owners = 3;
+
+  // URI resolving to a FileDescriptorProto that describes this resource's type
+  // schema. Replaces MonitoredResource.type (which was a bare string like
+  // "gce_instance" with externally-documented label constraints).
+  string type = 4;
+}

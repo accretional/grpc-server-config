@@ -2,10 +2,12 @@ syntax = "proto3";
 
 package ratelimit;
 
-option go_package = "github.com/accretional/grpc-server-config/rate-limiting/pb";
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+import "google/protobuf/duration.proto";
 
 enum Scope {
-  None = 0;
+  SCOPE_NONE = 0;
   // The rate limit applies at the grpc-server level
   Server = 1;
   // Only applies to services corresponding to a matcher (TODO: figure out how to structure the matcher. Probably do it Envoy-style)
@@ -14,13 +16,13 @@ enum Scope {
 }
 
 enum Interval {
-  None = 0;
+  INTERVAL_NONE = 0;
   // I think this is the default for golangs rate-limiting utils?
   Rolling = 1;
-  // When the rate limit accumulates monotonically until it resets to 0 at a particular time. 
+  // When the rate limit accumulates monotonically until it resets to 0 at a particular time.
   // I DO NOT recommend using this in most cases except where some other dependency makes specific times relevant for rate limits (literally exemplifying the problem). You might think these are "simpler" but they are definitely NOT simpler than rolling/windowing far as rate limiting is concerned.
   // The problem is that hard resets and timeouts do not model the actual problem trying to be solved by rate limiting - excessive point in time load. And they are infectious, because exhausting them and needing to wait for something to cool down causes every dependency to have to fold in those specific time-handling implementations, oftentimes in a user-facing or pretty structural way.
-  // PLEASE do not use this unless it is absolutely necessary 
+  // PLEASE do not use this unless it is absolutely necessary
   Reset = 2;
 }
 

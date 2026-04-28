@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package metrics;
+
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+import "google/protobuf/duration.proto";
+import "metrics/metric.proto";
+import "metrics/aggregation.proto";
+
+// AnyTimeSeries wraps any of the three time series kinds in a oneof,
+// allowing a single field to carry whichever kind the aligner produces.
+// The output kind of Align may differ from the input kind:
+//   ALIGN_DELTA on CumulativeTimeSeries  → DeltaTimeSeries
+//   ALIGN_RATE  on Cumulative or Delta   → GaugeTimeSeries (DOUBLE)
+//   All statistical aligners             → GaugeTimeSeries
+message AnyTimeSeries {
+  oneof series {
+    GaugeTimeSeries      gauge      = 1;
+    DeltaTimeSeries      delta      = 2;
+    CumulativeTimeSeries cumulative = 3;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Align RPC
+// ---------------------------------------------------------------------------
+
+message AlignRequest {
+  // The time series to align.
+  AnyTimeSeries input = 1;
+
+  // The aligner to apply. ALIGN_NONE returns the series unchanged.
+  Aligner aligner = 2;
+
+  // Width of each alignment bucket. Required for all aligners except
+  // ALIGN_NONE. Minimum 60s.
+  google.protobuf.Duration alignment_period = 3;
+}
+
+message AlignResponse {
+  // The aligned series. The kind may differ from AlignRequest.input; see
+  // AnyTimeSeries for the mapping.
+  AnyTimeSeries output = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Reduce RPC
+// ---------------------------------------------------------------------------
+
+message ReduceRequest {
+  // Input series to reduce. All series must:
+  //   - be of the same kind (all Gauge, all Delta, or all Cumulative)
+  //   - be already aligned to the same alignment_period
+  //   - share the same Metric.type
+  repeated AnyTimeSeries series = 1;
+
+  // The cross-series aggregation to apply. REDUCE_NONE is a no-op.
+  Reducer reducer = 2;
+
+  // Label keys to preserve. Series are grouped by the Cartesian product of
+  // these label values; all other label dimensions are dropped from output.
+  // Empty means all series are collapsed into one output series (if possible).
+  repeated string group_by_fields = 3;
+}
+
+message ReduceResponse {
+  // One output series per unique combination of group_by_fields label values.
+  repeated AnyTimeSeries series = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+// AggregationService implements the two-phase align → reduce pipeline used by
+// time series query languages such as MQL.
+//
+// Typical call sequence:
+//   1. Call Align once per input series with the chosen Aligner and period.
+//   2. Collect AlignResponse.output series for all inputs of the same type.
+//   3. Call Reduce with those aligned series to collapse across label dimensions.
+service AggregationService {
+  // Align transforms a single time series into fixed-duration aligned buckets.
+  // Each output point represents the result of the aligner operation applied to
+  // all input points that fall within that alignment period.
+  //
+  // The output kind may differ from the input kind (see AnyTimeSeries).
+  rpc Align(AlignRequest) returns (AlignResponse);
+
+  // Reduce combines multiple already-aligned time series into fewer series by
+  // applying a cross-series aggregation, optionally grouped by label fields.
+  //
+  // All input series must be of the same kind and aligned to the same period.
+  // The output series carry only the labels listed in group_by_fields.
+  rpc Reduce(ReduceRequest) returns (ReduceResponse);
+}

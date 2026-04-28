@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package metrics;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "metrics/distribution.proto";
+import "resource/resource.proto";
+
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+// ---------------------------------------------------------------------------
+// Descriptor types
+// ---------------------------------------------------------------------------
+
+// LabelDescriptor describes a single label key and the type of its values.
+// Adapted from google.api.LabelDescriptor.
+message LabelDescriptor {
+  enum ValueType {
+    STRING = 0;
+    BOOL = 1;
+    INT64 = 2;
+  }
+  string key = 1;
+  ValueType value_type = 2;
+  string description = 3;
+}
+
+// MetricKind describes how a metric's value accumulates over time.
+// Adapted from google.api.MetricDescriptor.MetricKind.
+enum MetricKind {
+  METRIC_KIND_UNSPECIFIED = 0;
+  // Instantaneous measurement. Each point is independent.
+  GAUGE = 1;
+  // Change in a value during a time window [start, start+duration).
+  // Consecutive windows should be contiguous and non-overlapping.
+  DELTA = 2;
+  // Total accumulated since a fixed epoch. Resets (e.g. process restart)
+  // produce a new CumulativeTimeSeries with a fresh epoch_start rather than
+  // mutating the existing series.
+  CUMULATIVE = 3;
+}
+
+// ValueType describes the data type of individual metric points.
+// Adapted from google.api.MetricDescriptor.ValueType.
+// Note: BOOL and STRING are only valid for GAUGE metrics. DELTA and CUMULATIVE
+// metrics must use NumericValue (INT64, DOUBLE, or DISTRIBUTION).
+enum ValueType {
+  VALUE_TYPE_UNSPECIFIED = 0;
+  BOOL = 1; // GAUGE only
+  INT64 = 2;
+  DOUBLE = 3;
+  STRING = 4; // GAUGE only
+  DISTRIBUTION = 5;
+}
+
+// MetricDescriptor defines a metric type and the schema for its time series.
+// Adapted from google.api.MetricDescriptor; GCP-specific fields (launch_stage,
+// monitored_resource_types, MetricDescriptorMetadata) are omitted.
+message MetricDescriptor {
+  // Hierarchical type name, e.g. "server/http/request_count".
+  // Matches the type field on Metric instances of this descriptor.
+  string type = 1;
+
+  // Concise human-readable name, e.g. "HTTP request count".
+  string display_name = 2;
+
+  // Full description for documentation.
+  string description = 3;
+
+  // Label keys valid for this metric type. All keys must appear in
+  // Metric.labels when a time series is created.
+  repeated LabelDescriptor labels = 4;
+
+  MetricKind metric_kind = 5;
+  ValueType value_type = 6;
+
+  // Unit string following UCUM, e.g. "By", "s", "1/s", "{request}".
+  // Only meaningful for INT64, DOUBLE, and DISTRIBUTION value types.
+  string unit = 7;
+}
+
+// Metric identifies a specific time series: a metric type paired with a
+// complete set of label values.
+// Adapted from google.api.Metric.
+message Metric {
+  // Matches MetricDescriptor.type, e.g. "server/http/request_count".
+  string type = 1;
+
+  // Label key-value pairs. Every key declared in MetricDescriptor.labels
+  // must have a value here.
+  map<string, string> labels = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Value types
+// ---------------------------------------------------------------------------
+
+// TypedValue holds a single data point value for any MetricKind.
+// All five variants are valid for GAUGE. DELTA and CUMULATIVE must use
+// NumericValue, which excludes BOOL and STRING.
+message TypedValue {
+  oneof value {
+    bool bool_value = 1;
+    int64 int64_value = 2;
+    double double_value = 3;
+    string string_value = 4;
+    Distribution distribution_value = 5;
+  }
+}
+
+// NumericValue is the value type for DELTA and CUMULATIVE metrics.
+// BOOL and STRING are excluded: you cannot meaningfully delta a boolean or
+// accumulate a string.
+message NumericValue {
+  oneof value {
+    int64 int64_value = 1;
+    double double_value = 2;
+    Distribution distribution_value = 3;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Points
+// ---------------------------------------------------------------------------
+
+// GaugePoint is an instantaneous measurement at a single moment in time.
+message GaugePoint {
+  google.protobuf.Timestamp at = 1;
+  TypedValue value = 2;
+}
+
+// NumericPoint is a (duration, value) pair used by both DeltaTimeSeries and
+// CumulativeTimeSeries. The semantic meaning of duration depends on the
+// containing series type:
+//   DeltaTimeSeries:      width of the measurement window
+//   CumulativeTimeSeries: time elapsed since the previous point's end (or
+//                         since epoch_start for the first point)
+// In both cases the per-series anchor (start / epoch_start) plus the
+// cumulative sum of durations gives the absolute time of each point boundary,
+// and structural ordering guarantees come from the series, not from this type.
+//
+// Constraint (enforced by consumers, unavoidable in proto3):
+//   duration > 0
+message NumericPoint {
+  google.protobuf.Duration duration = 1;
+  NumericValue value = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Time series
+// ---------------------------------------------------------------------------
+
+// GaugeTimeSeries is a sequence of instantaneous measurements.
+// Points need not be evenly spaced; gaps are permitted.
+message GaugeTimeSeries {
+  Metric metric = 1;
+  resource.Resource resource = 2;
+  repeated GaugePoint points = 3;
+}
+
+// DeltaTimeSeries is a sequence of contiguous, non-overlapping delta windows.
+// The start of window[i] is: start + sum(point[0..i-1].duration)
+// The end   of window[i] is: start + sum(point[0..i].duration)
+message DeltaTimeSeries {
+  Metric metric = 1;
+  resource.Resource resource = 2;
+  // Start of the first window. All subsequent windows follow contiguously.
+  google.protobuf.Timestamp start = 3;
+  repeated NumericPoint points = 4;
+}
+
+// CumulativeTimeSeries records accumulated totals since a fixed epoch.
+//
+// A counter reset (process restart, rollover, etc.) produces a NEW
+// CumulativeTimeSeries with a fresh epoch_start — not a mutation of this
+// series. This makes resets structurally visible rather than a special case
+// requiring out-of-band detection.
+//
+// The absolute end time of point[i] is: epoch_start + sum(point[0..i].duration)
+message CumulativeTimeSeries {
+  Metric metric = 1;
+  resource.Resource resource = 2;
+
+  // Fixed start of the accumulation epoch for the lifetime of this series.
+  google.protobuf.Timestamp epoch_start = 3;
+
+  repeated NumericPoint points = 4;
+}

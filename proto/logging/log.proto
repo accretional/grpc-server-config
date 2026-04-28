@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package logging;
 
-option go_package = "github.com/accretional/grpc-server-config/logging/pb";
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+import "google/protobuf/timestamp.proto";
 
 enum LogLevel {
   // NB I think we should use this log level as a way to hide, soft-delete, or mark for deletion
@@ -20,8 +22,8 @@ enum LogLevel {
   // DO write Error logs that clearly explain what went wrong and ALWAYS enough information to communicate what should be done to fix it (if possible). DO include 1-2 links to external resources (eg documentation or one of the things that went wrong/was implicated, eg the client server) to help users if relevant.
   Error = 3;
   // use for shutdown logs and fatal/unrecoverable errors. DO NOT use Fatal log levels for recoverable or "related" errors (those should be Error; the Fatal logs should only be for the state/condition/error that is specifically unrecoverable and causnig a shutdown/cleanup)
-  Fatal =  4;
-  // TBD but I think we should allow Alerts to be filed directly (and when filed the "normal" way out-of-the-loop, also filed this way to bring them into the logging world) from code. This would be pretty useful for development/prototyping and a good way to avoid the cruft of doing it indirectly (eg by having something watching for a specific metric or log contents, because only that type of structure can file alerts) 
+  Fatal = 4;
+  // TBD but I think we should allow Alerts to be filed directly (and when filed the "normal" way out-of-the-loop, also filed this way to bring them into the logging world) from code. This would be pretty useful for development/prototyping and a good way to avoid the cruft of doing it indirectly (eg by having something watching for a specific metric or log contents, because only that type of structure can file alerts)
   Alert = 5;
   // TBD but I think Alarms should be basically just Alerts, but urgent/time-sensitive. In my mind an alert may just get pushed via notifications/email some report in some cases, but an alarm is something that means "this must be handled/mitigated ASAP" or "you need to react to this problem and triage its urgency/importance ASAP, and then can turn off the alarm"
   Alarm = 6;

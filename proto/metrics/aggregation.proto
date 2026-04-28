@@ -1,0 +1,215 @@
+syntax = "proto3";
+
+package metrics;
+
+option go_package = "github.com/accretional/grpc-server-config/pb";
+
+import "google/protobuf/duration.proto";
+import "v2/text.proto";
+
+// ---------------------------------------------------------------------------
+// Aligner
+// ---------------------------------------------------------------------------
+
+// Aligner describes the per-series operation applied within each alignment
+// period. The operation collapses all data points in a period into a single
+// output point placed at the period's end boundary.
+//
+// Field numbers match google.monitoring.v3 for easy cross-referencing.
+enum Aligner {
+  // No alignment. Raw data is returned as-is. Cross-series reduction
+  // (via Aggregation.aligned) is not permitted with this aligner.
+  ALIGN_NONE = 0;
+
+  // Convert CUMULATIVE to DELTA: output[i] = cumulative[i] - cumulative[i-1].
+  // Valid for CUMULATIVE input. Output is DeltaTimeSeries.
+  ALIGN_DELTA = 1;
+
+  // Convert CUMULATIVE or DELTA to a per-second rate: delta_value / duration.
+  // Output is GaugeTimeSeries with DOUBLE values.
+  ALIGN_RATE = 2;
+
+  // Interpolate GAUGE values at alignment period boundaries using linear
+  // interpolation between adjacent points. Valid for GAUGE numeric.
+  ALIGN_INTERPOLATE = 3;
+
+  // Carry forward the most recent GAUGE value before each period end to the
+  // period boundary. Valid for GAUGE.
+  ALIGN_NEXT_OLDER = 4;
+
+  // Minimum value in each alignment period. Valid for GAUGE and DELTA numeric.
+  ALIGN_MIN = 10;
+
+  // Maximum value in each alignment period. Valid for GAUGE and DELTA numeric.
+  ALIGN_MAX = 11;
+
+  // Mean of values in each alignment period. Output is DOUBLE.
+  // Valid for GAUGE and DELTA numeric.
+  ALIGN_MEAN = 12;
+
+  // Count of data points in each alignment period. Output is INT64.
+  // Valid for GAUGE and DELTA numeric or boolean.
+  ALIGN_COUNT = 13;
+
+  // Sum of values in each alignment period.
+  // Valid for GAUGE and DELTA numeric and distribution.
+  ALIGN_SUM = 14;
+
+  // Standard deviation of values in each alignment period. Output is DOUBLE.
+  // Valid for GAUGE and DELTA numeric.
+  ALIGN_STDDEV = 15;
+
+  // Count of True values in each alignment period. Output is INT64.
+  // Valid for GAUGE BOOL.
+  ALIGN_COUNT_TRUE = 16;
+
+  // Count of False values in each alignment period. Output is INT64.
+  // Valid for GAUGE BOOL.
+  ALIGN_COUNT_FALSE = 24;
+
+  // Ratio of True values to total values in each alignment period [0.0, 1.0].
+  // Output is DOUBLE. Valid for GAUGE BOOL.
+  ALIGN_FRACTION_TRUE = 17;
+
+  // 99th percentile of DISTRIBUTION values in each alignment period.
+  // Output is GAUGE DOUBLE. Valid for GAUGE and DELTA DISTRIBUTION.
+  ALIGN_PERCENTILE_99 = 18;
+
+  // 95th percentile. See ALIGN_PERCENTILE_99.
+  ALIGN_PERCENTILE_95 = 19;
+
+  // 50th percentile (median). See ALIGN_PERCENTILE_99.
+  ALIGN_PERCENTILE_50 = 20;
+
+  // 5th percentile. See ALIGN_PERCENTILE_99.
+  ALIGN_PERCENTILE_05 = 21;
+
+  // Percentage change relative to the previous alignment period:
+  //   ((current - previous) / previous) * 100
+  // A 10-minute moving mean is applied to each period before this calculation
+  // to reduce noise from short-lived spikes. Output is GAUGE DOUBLE.
+  // Valid for GAUGE and DELTA numeric.
+  ALIGN_PERCENT_CHANGE = 23;
+}
+
+// ---------------------------------------------------------------------------
+// Reducer
+// ---------------------------------------------------------------------------
+
+// Reducer describes how to combine multiple already-aligned time series into
+// fewer series. Reduction happens after alignment.
+//
+// Field numbers match google.monitoring.v3 for easy cross-referencing.
+enum Reducer {
+  // No cross-series reduction. Aligned series are returned as-is.
+  REDUCE_NONE = 0;
+
+  // Mean across series at each aligned time point. Output is DOUBLE.
+  // Valid for DELTA and GAUGE numeric or distribution.
+  REDUCE_MEAN = 1;
+
+  // Minimum across series at each aligned time point.
+  // Valid for DELTA and GAUGE numeric.
+  REDUCE_MIN = 2;
+
+  // Maximum across series at each aligned time point.
+  // Valid for DELTA and GAUGE numeric.
+  REDUCE_MAX = 3;
+
+  // Sum across series at each aligned time point.
+  // Valid for DELTA and GAUGE numeric and distribution.
+  REDUCE_SUM = 4;
+
+  // Standard deviation across series at each aligned time point. Output is DOUBLE.
+  // Valid for DELTA and GAUGE numeric or distribution.
+  REDUCE_STDDEV = 5;
+
+  // Count of data points across series at each aligned time point. Output is INT64.
+  // Valid for DELTA and GAUGE of any value type.
+  REDUCE_COUNT = 6;
+
+  // Count of True values across series. Output is INT64.
+  // Valid for DELTA and GAUGE BOOL.
+  REDUCE_COUNT_TRUE = 7;
+
+  // Count of False values across series. Output is INT64.
+  // Valid for DELTA and GAUGE BOOL.
+  REDUCE_COUNT_FALSE = 15;
+
+  // Ratio of True to total values across series [0.0, 1.0]. Output is DOUBLE.
+  // Valid for DELTA and GAUGE BOOL.
+  REDUCE_FRACTION_TRUE = 8;
+
+  // 99th percentile across distribution series at each aligned time point.
+  // Output is DOUBLE. Valid for GAUGE and DELTA DISTRIBUTION.
+  REDUCE_PERCENTILE_99 = 9;
+
+  // 95th percentile. See REDUCE_PERCENTILE_99.
+  REDUCE_PERCENTILE_95 = 10;
+
+  // 50th percentile (median). See REDUCE_PERCENTILE_99.
+  REDUCE_PERCENTILE_50 = 11;
+
+  // 5th percentile. See REDUCE_PERCENTILE_99.
+  REDUCE_PERCENTILE_05 = 12;
+}
+
+// ---------------------------------------------------------------------------
+// Aggregation
+// ---------------------------------------------------------------------------
+
+// AlignedAggregation pairs a required per-series aligner with an optional
+// cross-series reducer. The aligner must not be ALIGN_NONE.
+message AlignedAggregation {
+  // Required. The operation to apply within each alignment period.
+  // Must not be ALIGN_NONE (use Aggregation.no_alignment for that case).
+  Aligner per_series_aligner = 1;
+
+  // Optional. The operation to combine series after alignment.
+  // REDUCE_NONE means no cross-series reduction; aligned series are returned
+  // individually.
+  Reducer cross_series_reducer = 2;
+
+  // Label keys to preserve in the output. Series are grouped by the values
+  // of these labels before the reducer is applied; all other label dimensions
+  // are aggregated away. Ignored when cross_series_reducer is REDUCE_NONE.
+  repeated string group_by_fields = 3;
+}
+
+// Aggregation describes how to align and optionally reduce one or more time
+// series. The oneof on strategy makes it structurally impossible to specify a
+// cross-series reducer without also providing an aligner — a constraint that
+// Google's Aggregation message only enforces via documentation.
+message Aggregation {
+  // Required when strategy is aligned. The width of each alignment bucket.
+  // Minimum meaningful value is 60s.
+  google.protobuf.Duration alignment_period = 1;
+
+  oneof strategy {
+    // No alignment or reduction. Raw series are returned as-is.
+    // ALIGN_NONE is implied; cross-series reduction is not available here.
+    bool no_alignment = 2;
+
+    // Aligned (and optionally reduced) aggregation.
+    AlignedAggregation aligned = 3;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// QueryError (Step 2)
+// ---------------------------------------------------------------------------
+
+// QueryError reports a problem encountered while parsing or evaluating a query.
+message QueryError {
+  // The text snippet that caused the error, carried as a TextDescriptor so the
+  // caller can choose the most efficient encoding (ASCII chunk, unicode run, or
+  // raw string). For most query errors, set the unicode_string arm.
+  //
+  // Note: if a positional reference into the original query string is preferred
+  // over embedding the snippet (e.g. line/column/byte offset), replace this
+  // field with a text.SourceLocation from text/source_location.proto instead.
+  gluon.v2.TextDescriptor snippet = 1;
+
+  // Human-readable explanation of what went wrong and how to fix it.
+  string message = 2;
+}
