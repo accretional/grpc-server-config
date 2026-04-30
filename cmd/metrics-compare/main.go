@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/accretional/grpc-server-config/pb"
+	pb "github.com/accretional/grpc-server-config/pb/metrics"
 )
 
 var alignerByName = map[string]pb.Aligner{
@@ -43,7 +43,7 @@ func main() {
 	aligner := flag.String("aligner", "ALIGN_MEAN", "per-series aligner (e.g. ALIGN_MEAN, ALIGN_RATE)")
 	period := flag.Int("period", 60, "alignment period in seconds")
 	hours := flag.Float64("hours", 1, "how many hours back to fetch")
-	dir := flag.String("dir", "cmd/compare/testdata", "directory for saved JSON files")
+	dir := flag.String("dir", "cmd/metrics-compare/testdata", "directory for saved JSON files")
 	doFetch := flag.Bool("fetch", false, "fetch from GCP and save to --dir")
 	doCompare := flag.Bool("compare", false, "compare our aligner against saved GCP data")
 	flag.Parse()

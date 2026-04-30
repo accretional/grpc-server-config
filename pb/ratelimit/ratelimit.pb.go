@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: rate-limiting/ratelimit.proto
 
-package pb
+package ratelimit
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -232,7 +232,7 @@ const file_rate_limiting_ratelimit_proto_rawDesc = "" +
 	"\bInterval\x12\x11\n" +
 	"\rINTERVAL_NONE\x10\x00\x12\v\n" +
 	"\aRolling\x10\x01\x12\t\n" +
-	"\x05Reset\x10\x02B.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x05Reset\x10\x02B8Z6github.com/accretional/grpc-server-config/pb/ratelimitb\x06proto3"
 
 var (
 	file_rate_limiting_ratelimit_proto_rawDescOnce sync.Once

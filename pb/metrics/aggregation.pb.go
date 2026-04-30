@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: metrics/aggregation.proto
 
-package pb
+package metrics
 
 import (
 	pb "github.com/accretional/gluon/v2/pb"
@@ -564,7 +564,7 @@ const file_metrics_aggregation_proto_rawDesc = "" +
 	"\x14REDUCE_PERCENTILE_95\x10\n" +
 	"\x12\x18\n" +
 	"\x14REDUCE_PERCENTILE_50\x10\v\x12\x18\n" +
-	"\x14REDUCE_PERCENTILE_05\x10\fB.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x14REDUCE_PERCENTILE_05\x10\fB6Z4github.com/accretional/grpc-server-config/pb/metricsb\x06proto3"
 
 var (
 	file_metrics_aggregation_proto_rawDescOnce sync.Once

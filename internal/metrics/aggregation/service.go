@@ -3,7 +3,7 @@ package aggregation
 import (
 	"context"
 
-	pb "github.com/accretional/grpc-server-config/pb"
+	pb "github.com/accretional/grpc-server-config/pb/metrics"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

@@ -5,9 +5,9 @@ package metrics;
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "metrics/distribution.proto";
-import "resource/resource.proto";
+import "metrics/resource.proto";
 
-option go_package = "github.com/accretional/grpc-server-config/pb";
+option go_package = "github.com/accretional/grpc-server-config/pb/metrics";
 
 // ---------------------------------------------------------------------------
 // Descriptor types

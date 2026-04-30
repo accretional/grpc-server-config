@@ -4,7 +4,7 @@
 // - protoc             v7.34.1
 // source: metrics/aggregation_service.proto
 
-package pb
+package metrics
 
 import (
 	context "context"

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package resource;
 
-option go_package = "github.com/accretional/grpc-server-config/pb";
+option go_package = "github.com/accretional/grpc-server-config/pb/metrics";
 
 // Resource is a typed, persistently-identified object — analogous to a file
 // descriptor but with a persistent numeric id, an explicit ownership chain,

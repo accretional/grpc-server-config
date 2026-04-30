@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package metrics;
 
-option go_package = "github.com/accretional/grpc-server-config/pb";
+option go_package = "github.com/accretional/grpc-server-config/pb/metrics";
 
 import "google/protobuf/duration.proto";
 import "metrics/metric.proto";

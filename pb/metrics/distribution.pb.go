@@ -9,7 +9,7 @@
 // 	protoc        v7.34.1
 // source: metrics/distribution.proto
 
-package pb
+package metrics
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -573,7 +573,7 @@ const file_metrics_distribution_proto_rawDesc = "" +
 	"\bExemplar\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x01R\x05value\x128\n" +
 	"\ttimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x14\n" +
-	"\x05label\x18\x03 \x01(\tR\x05labelB.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x05label\x18\x03 \x01(\tR\x05labelB6Z4github.com/accretional/grpc-server-config/pb/metricsb\x06proto3"
 
 var (
 	file_metrics_distribution_proto_rawDescOnce sync.Once

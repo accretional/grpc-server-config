@@ -36,4 +36,4 @@ test:
 
 # Remove all generated pb files. Re-run make generate to restore.
 clean:
-	find . -path '*/pb/*.pb.go' -delete
+	find . -path '*/pb*/*.pb.go' -delete

@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/accretional/grpc-server-config/internal/aggregation"
-	pb "github.com/accretional/grpc-server-config/pb"
+	"github.com/accretional/grpc-server-config/internal/metrics/aggregation"
+	pb "github.com/accretional/grpc-server-config/pb/metrics"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 

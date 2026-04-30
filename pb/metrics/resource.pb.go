@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.1
-// source: resource/resource.proto
+// source: metrics/resource.proto
 
-package pb
+package metrics
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -49,7 +49,7 @@ type Resource struct {
 
 func (x *Resource) Reset() {
 	*x = Resource{}
-	mi := &file_resource_resource_proto_msgTypes[0]
+	mi := &file_metrics_resource_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61,7 +61,7 @@ func (x *Resource) String() string {
 func (*Resource) ProtoMessage() {}
 
 func (x *Resource) ProtoReflect() protoreflect.Message {
-	mi := &file_resource_resource_proto_msgTypes[0]
+	mi := &file_metrics_resource_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -74,7 +74,7 @@ func (x *Resource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Resource.ProtoReflect.Descriptor instead.
 func (*Resource) Descriptor() ([]byte, []int) {
-	return file_resource_resource_proto_rawDescGZIP(), []int{0}
+	return file_metrics_resource_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Resource) GetId() int64 {
@@ -105,34 +105,34 @@ func (x *Resource) GetType() string {
 	return ""
 }
 
-var File_resource_resource_proto protoreflect.FileDescriptor
+var File_metrics_resource_proto protoreflect.FileDescriptor
 
-const file_resource_resource_proto_rawDesc = "" +
+const file_metrics_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x17resource/resource.proto\x12\bresource\"n\n" +
+	"\x16metrics/resource.proto\x12\bresource\"n\n" +
 	"\bResource\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12*\n" +
 	"\x06owners\x18\x03 \x03(\v2\x12.resource.ResourceR\x06owners\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04typeB.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x04type\x18\x04 \x01(\tR\x04typeB6Z4github.com/accretional/grpc-server-config/pb/metricsb\x06proto3"
 
 var (
-	file_resource_resource_proto_rawDescOnce sync.Once
-	file_resource_resource_proto_rawDescData []byte
+	file_metrics_resource_proto_rawDescOnce sync.Once
+	file_metrics_resource_proto_rawDescData []byte
 )
 
-func file_resource_resource_proto_rawDescGZIP() []byte {
-	file_resource_resource_proto_rawDescOnce.Do(func() {
-		file_resource_resource_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_resource_resource_proto_rawDesc), len(file_resource_resource_proto_rawDesc)))
+func file_metrics_resource_proto_rawDescGZIP() []byte {
+	file_metrics_resource_proto_rawDescOnce.Do(func() {
+		file_metrics_resource_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_metrics_resource_proto_rawDesc), len(file_metrics_resource_proto_rawDesc)))
 	})
-	return file_resource_resource_proto_rawDescData
+	return file_metrics_resource_proto_rawDescData
 }
 
-var file_resource_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_resource_resource_proto_goTypes = []any{
+var file_metrics_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_metrics_resource_proto_goTypes = []any{
 	(*Resource)(nil), // 0: resource.Resource
 }
-var file_resource_resource_proto_depIdxs = []int32{
+var file_metrics_resource_proto_depIdxs = []int32{
 	0, // 0: resource.Resource.owners:type_name -> resource.Resource
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
@@ -141,26 +141,26 @@ var file_resource_resource_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_resource_resource_proto_init() }
-func file_resource_resource_proto_init() {
-	if File_resource_resource_proto != nil {
+func init() { file_metrics_resource_proto_init() }
+func file_metrics_resource_proto_init() {
+	if File_metrics_resource_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_resource_resource_proto_rawDesc), len(file_resource_resource_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_metrics_resource_proto_rawDesc), len(file_metrics_resource_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_resource_resource_proto_goTypes,
-		DependencyIndexes: file_resource_resource_proto_depIdxs,
-		MessageInfos:      file_resource_resource_proto_msgTypes,
+		GoTypes:           file_metrics_resource_proto_goTypes,
+		DependencyIndexes: file_metrics_resource_proto_depIdxs,
+		MessageInfos:      file_metrics_resource_proto_msgTypes,
 	}.Build()
-	File_resource_resource_proto = out.File
-	file_resource_resource_proto_goTypes = nil
-	file_resource_resource_proto_depIdxs = nil
+	File_metrics_resource_proto = out.File
+	file_metrics_resource_proto_goTypes = nil
+	file_metrics_resource_proto_depIdxs = nil
 }

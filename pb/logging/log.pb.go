@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: logging/log.proto
 
-package pb
+package logging
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -193,7 +193,7 @@ const file_logging_log_proto_rawDesc = "" +
 	"\x06System\x10\a\x12\n" +
 	"\n" +
 	"\x06Notice\x10\b\x12\t\n" +
-	"\x05Debug\x10\tB.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x05Debug\x10\tB6Z4github.com/accretional/grpc-server-config/pb/loggingb\x06proto3"
 
 var (
 	file_logging_log_proto_rawDescOnce sync.Once

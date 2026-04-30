@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: metrics/metric.proto
 
-package pb
+package metrics
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -986,7 +986,7 @@ var File_metrics_metric_proto protoreflect.FileDescriptor
 
 const file_metrics_metric_proto_rawDesc = "" +
 	"\n" +
-	"\x14metrics/metric.proto\x12\ametrics\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1ametrics/distribution.proto\x1a\x17resource/resource.proto\"\xb6\x01\n" +
+	"\x14metrics/metric.proto\x12\ametrics\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1ametrics/distribution.proto\x1a\x16metrics/resource.proto\"\xb6\x01\n" +
 	"\x0fLabelDescriptor\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12A\n" +
 	"\n" +
@@ -1066,7 +1066,7 @@ const file_metrics_metric_proto_rawDesc = "" +
 	"\x06DOUBLE\x10\x03\x12\n" +
 	"\n" +
 	"\x06STRING\x10\x04\x12\x10\n" +
-	"\fDISTRIBUTION\x10\x05B.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\fDISTRIBUTION\x10\x05B6Z4github.com/accretional/grpc-server-config/pb/metricsb\x06proto3"
 
 var (
 	file_metrics_metric_proto_rawDescOnce sync.Once
@@ -1138,7 +1138,7 @@ func file_metrics_metric_proto_init() {
 		return
 	}
 	file_metrics_distribution_proto_init()
-	file_resource_resource_proto_init()
+	file_metrics_resource_proto_init()
 	file_metrics_metric_proto_msgTypes[3].OneofWrappers = []any{
 		(*TypedValue_BoolValue)(nil),
 		(*TypedValue_Int64Value)(nil),

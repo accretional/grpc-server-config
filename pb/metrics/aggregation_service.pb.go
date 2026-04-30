@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: metrics/aggregation_service.proto
 
-package pb
+package metrics
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -376,7 +376,7 @@ const file_metrics_aggregation_service_proto_rawDesc = "" +
 	"\x06series\x18\x01 \x03(\v2\x16.metrics.AnyTimeSeriesR\x06series2\x87\x01\n" +
 	"\x12AggregationService\x126\n" +
 	"\x05Align\x12\x15.metrics.AlignRequest\x1a\x16.metrics.AlignResponse\x129\n" +
-	"\x06Reduce\x12\x16.metrics.ReduceRequest\x1a\x17.metrics.ReduceResponseB.Z,github.com/accretional/grpc-server-config/pbb\x06proto3"
+	"\x06Reduce\x12\x16.metrics.ReduceRequest\x1a\x17.metrics.ReduceResponseB6Z4github.com/accretional/grpc-server-config/pb/metricsb\x06proto3"
 
 var (
 	file_metrics_aggregation_service_proto_rawDescOnce sync.Once
