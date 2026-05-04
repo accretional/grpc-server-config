@@ -1,0 +1,115 @@
+(* =========================================================================
+   MQL — Monitoring Query Language
+   ISO 14977 EBNF (gluon/lexkit style).
+
+   All rule names are PascalCase (syntactic) — whitespace is skipped
+   automatically between every element. Lowercase names (ident, digits,
+   string_literal, number_literal) are NOT defined here; they are handled
+   by TokenMatcher functions registered in mqlParseOptions() so the parser
+   matches them as atomic tokens without character-by-character recursion.
+
+   Entry point: Query  (must be the first rule)
+   ========================================================================= *)
+
+Query = FetchExpr, { "|", PipeOp } ;
+
+(* ---------------------------------------------------------------------------
+   Fetch
+   --------------------------------------------------------------------------- *)
+
+FetchExpr    = "fetch", ResourceType, "::", MetricType ;
+ResourceType = ident ;
+MetricType   = ident_segment, { ( "." | "/" ), ident_segment } ;
+
+
+(* ---------------------------------------------------------------------------
+   Pipe operations
+   --------------------------------------------------------------------------- *)
+
+PipeOp = FilterOp
+       | AlignOp
+       | EveryOp
+       | WithinOp
+       | GroupByOp
+       ;
+
+FilterOp  = "filter",   Predicate ;
+AlignOp   = "align",    AlignerName, "(", Duration, ")" ;
+EveryOp   = "every",    Duration ;
+WithinOp  = "within",   Duration ;
+GroupByOp = "group_by", "[", LabelList, "]", ",", ReducerName, "(", ")" ;
+
+
+(* ---------------------------------------------------------------------------
+   Aligners / Reducers
+   --------------------------------------------------------------------------- *)
+
+AlignerName = "mean"
+            | "min"
+            | "max"
+            | "sum"
+            | "count"
+            | "stddev"
+            | "rate"
+            | "delta"
+            | "interpolate"
+            | "next_older"
+            | "percent_change"
+            ;
+
+ReducerName = "mean"
+            | "min"
+            | "max"
+            | "sum"
+            | "count"
+            | "stddev"
+            ;
+
+
+(* ---------------------------------------------------------------------------
+   Label references
+   --------------------------------------------------------------------------- *)
+
+LabelList = LabelRef, { ",", LabelRef } ;
+
+LabelRef = "metric",   ".", "labels", ".", ident
+         | "resource", ".", "labels", ".", ident
+         | "metadata", ".", MetadataSection, ".", ident
+         ;
+
+MetadataSection = "system_labels" | "user_labels" ;
+
+
+(* ---------------------------------------------------------------------------
+   Predicates
+   --------------------------------------------------------------------------- *)
+
+Predicate = AndExpr, { "||", AndExpr } ;
+
+AndExpr = UnaryPred, { "&&", UnaryPred } ;
+
+UnaryPred = NotPred | PrimaryPred ;
+
+NotPred = "!", PrimaryPred ;
+
+PrimaryPred = GroupedPred | ComparisonExpr ;
+
+GroupedPred = "(", Predicate, ")" ;
+
+ComparisonExpr = LabelRef, CompOp, Value ;
+
+CompOp = "=~" | "!~" | "!=" | "<=" | ">=" | "=" | "<" | ">" ;
+
+Value = string_literal | number_literal | "true" | "false" ;
+
+
+(* ---------------------------------------------------------------------------
+   Durations
+   --------------------------------------------------------------------------- *)
+
+Duration     = digits, DurationUnit ;
+DurationUnit = "s" | "m" | "h" | "d" | "w" ;
+
+
+(* ident, ident_segment, digits, string_literal, number_literal are resolved
+   via TokenMatcher functions — they do not need grammar rules here. *)

@@ -28,10 +28,10 @@ generate:
 		--go-grpc_opt=require_unimplemented_servers=false \
 		$(PROTO_FILES)
 
-build:
+build: generate
 	go build ./...
 
-test:
+test: build
 	go test ./...
 
 # Remove all generated pb files. Re-run make generate to restore.

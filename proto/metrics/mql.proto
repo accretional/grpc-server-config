@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package mql;
+
+option go_package = "github.com/accretional/grpc-server-config/pb/metrics";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "metrics/aggregation.proto";
+
+// QueryPlan is the typed intermediate representation of a parsed MQL query.
+// An MQL string → Parse → QueryPlan → Execute → time series.
+//
+// A plan corresponds to one MQL pipe chain:
+//
+//   fetch <resource>::<metric>
+//   | filter <predicate>
+//   | align <aligner>(<period>)
+//   | every <period>
+//   | group_by [<labels>], <reducer>()
+//   | within <duration>
+message QueryPlan {
+  FetchOp fetch = 1;
+  repeated PipeOp pipeline = 2;
+  TimeRange time_range = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch
+// ---------------------------------------------------------------------------
+
+// FetchOp selects the initial set of time series.
+// Maps to: fetch <resource_type>::<metric_type>
+message FetchOp {
+  // Monitored resource type, e.g. "gce_instance", "k8s_container".
+  string resource_type = 1;
+  // Metric type, e.g. "compute.googleapis.com/instance/cpu/utilization".
+  string metric_type = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline stages
+// ---------------------------------------------------------------------------
+
+// PipeOp is one stage in the processing pipeline after fetch.
+message PipeOp {
+  oneof op {
+    FilterOp  filter   = 1;
+    AlignOp   align    = 2;
+    EveryOp   every    = 3;
+    GroupByOp group_by = 4;
+  }
+}
+
+// FilterOp retains only time series whose labels match the predicate.
+// Maps to: filter <predicate>
+message FilterOp {
+  Predicate predicate = 1;
+}
+
+// AlignOp aligns each time series into fixed-width buckets.
+// Maps to: align <aligner>(<period>)
+message AlignOp {
+  metrics.Aligner aligner = 1;
+  google.protobuf.Duration period = 2;
+}
+
+// EveryOp overrides the output sampling period without changing the aligner.
+// When absent the period from AlignOp is used.
+// Maps to: every <period>
+message EveryOp {
+  google.protobuf.Duration period = 1;
+}
+
+// GroupByOp reduces multiple series to fewer series, grouped by label keys.
+// Maps to: group_by [<labels>], <reducer>()
+message GroupByOp {
+  // Dotted label paths to preserve, e.g. "metric.labels.zone".
+  // Series are grouped by the Cartesian product of these values.
+  repeated string label_keys = 1;
+  metrics.Reducer reducer = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Time range
+// ---------------------------------------------------------------------------
+
+// TimeRange bounds the query window.
+// Maps to: within <duration> (relative) or an explicit [start, end] range.
+message TimeRange {
+  oneof range {
+    // Relative: look back this far from now. E.g. "within 1h" → 3600s.
+    google.protobuf.Duration relative = 1;
+    // Absolute: explicit start/end timestamps.
+    AbsoluteRange absolute = 2;
+  }
+}
+
+message AbsoluteRange {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Predicates
+// ---------------------------------------------------------------------------
+
+// Predicate is a boolean expression over metric/resource label values.
+message Predicate {
+  oneof expr {
+    ComparisonExpr comparison = 1;
+    LogicalExpr    logical    = 2;
+    NotExpr        not        = 3;
+  }
+}
+
+// ComparisonExpr compares a label path against a literal value.
+// e.g. metric.labels.instance_name =~ "my-.*"
+message ComparisonExpr {
+  // Dotted path to the label, e.g. "metric.labels.zone".
+  string label_path = 1;
+  ComparisonOp op = 2;
+  Value rhs = 3;
+}
+
+enum ComparisonOp {
+  EQ  = 0; // =   exact match
+  NEQ = 1; // !=  not equal
+  RE  = 2; // =~  regex match
+  NRE = 3; // !~  regex no-match
+  LT  = 4; // <
+  LTE = 5; // <=
+  GT  = 6; // >
+  GTE = 7; // >=
+}
+
+// LogicalExpr combines two or more predicates with AND or OR.
+message LogicalExpr {
+  LogicalOp op = 1;
+  repeated Predicate operands = 2;
+}
+
+enum LogicalOp {
+  AND = 0;
+  OR  = 1;
+}
+
+// NotExpr negates a predicate.
+message NotExpr {
+  Predicate operand = 1;
+}
+
+// Value is a scalar literal used as the right-hand side of a comparison.
+message Value {
+  oneof v {
+    string string_value = 1;
+    double number_value = 2;
+    bool   bool_value   = 3;
+  }
+}

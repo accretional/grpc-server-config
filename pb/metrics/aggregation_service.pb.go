@@ -136,8 +136,13 @@ type AlignRequest struct {
 	// Width of each alignment bucket. Required for all aligners except
 	// ALIGN_NONE. Minimum 60s.
 	AlignmentPeriod *durationpb.Duration `protobuf:"bytes,3,opt,name=alignment_period,json=alignmentPeriod,proto3" json:"alignment_period,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Width of the moving-mean smoothing window applied before computing
+	// ALIGN_PERCENT_CHANGE. Only used when aligner == ALIGN_PERCENT_CHANGE.
+	// Defaults to 10 minutes when unset or zero, matching the behaviour
+	// described in the Cloud Monitoring API reference.
+	PercentChangeSmoothingWindow *durationpb.Duration `protobuf:"bytes,4,opt,name=percent_change_smoothing_window,json=percentChangeSmoothingWindow,proto3" json:"percent_change_smoothing_window,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *AlignRequest) Reset() {
@@ -187,6 +192,13 @@ func (x *AlignRequest) GetAligner() Aligner {
 func (x *AlignRequest) GetAlignmentPeriod() *durationpb.Duration {
 	if x != nil {
 		return x.AlignmentPeriod
+	}
+	return nil
+}
+
+func (x *AlignRequest) GetPercentChangeSmoothingWindow() *durationpb.Duration {
+	if x != nil {
+		return x.PercentChangeSmoothingWindow
 	}
 	return nil
 }
@@ -361,11 +373,12 @@ const file_metrics_aggregation_service_proto_rawDesc = "" +
 	"\n" +
 	"cumulative\x18\x03 \x01(\v2\x1d.metrics.CumulativeTimeSeriesH\x00R\n" +
 	"cumulativeB\b\n" +
-	"\x06series\"\xae\x01\n" +
+	"\x06series\"\x90\x02\n" +
 	"\fAlignRequest\x12,\n" +
 	"\x05input\x18\x01 \x01(\v2\x16.metrics.AnyTimeSeriesR\x05input\x12*\n" +
 	"\aaligner\x18\x02 \x01(\x0e2\x10.metrics.AlignerR\aaligner\x12D\n" +
-	"\x10alignment_period\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0falignmentPeriod\"?\n" +
+	"\x10alignment_period\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0falignmentPeriod\x12`\n" +
+	"\x1fpercent_change_smoothing_window\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x1cpercentChangeSmoothingWindow\"?\n" +
 	"\rAlignResponse\x12.\n" +
 	"\x06output\x18\x01 \x01(\v2\x16.metrics.AnyTimeSeriesR\x06output\"\x93\x01\n" +
 	"\rReduceRequest\x12.\n" +
@@ -411,19 +424,20 @@ var file_metrics_aggregation_service_proto_depIdxs = []int32{
 	0,  // 3: metrics.AlignRequest.input:type_name -> metrics.AnyTimeSeries
 	8,  // 4: metrics.AlignRequest.aligner:type_name -> metrics.Aligner
 	9,  // 5: metrics.AlignRequest.alignment_period:type_name -> google.protobuf.Duration
-	0,  // 6: metrics.AlignResponse.output:type_name -> metrics.AnyTimeSeries
-	0,  // 7: metrics.ReduceRequest.series:type_name -> metrics.AnyTimeSeries
-	10, // 8: metrics.ReduceRequest.reducer:type_name -> metrics.Reducer
-	0,  // 9: metrics.ReduceResponse.series:type_name -> metrics.AnyTimeSeries
-	1,  // 10: metrics.AggregationService.Align:input_type -> metrics.AlignRequest
-	3,  // 11: metrics.AggregationService.Reduce:input_type -> metrics.ReduceRequest
-	2,  // 12: metrics.AggregationService.Align:output_type -> metrics.AlignResponse
-	4,  // 13: metrics.AggregationService.Reduce:output_type -> metrics.ReduceResponse
-	12, // [12:14] is the sub-list for method output_type
-	10, // [10:12] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	9,  // 6: metrics.AlignRequest.percent_change_smoothing_window:type_name -> google.protobuf.Duration
+	0,  // 7: metrics.AlignResponse.output:type_name -> metrics.AnyTimeSeries
+	0,  // 8: metrics.ReduceRequest.series:type_name -> metrics.AnyTimeSeries
+	10, // 9: metrics.ReduceRequest.reducer:type_name -> metrics.Reducer
+	0,  // 10: metrics.ReduceResponse.series:type_name -> metrics.AnyTimeSeries
+	1,  // 11: metrics.AggregationService.Align:input_type -> metrics.AlignRequest
+	3,  // 12: metrics.AggregationService.Reduce:input_type -> metrics.ReduceRequest
+	2,  // 13: metrics.AggregationService.Align:output_type -> metrics.AlignResponse
+	4,  // 14: metrics.AggregationService.Reduce:output_type -> metrics.ReduceResponse
+	13, // [13:15] is the sub-list for method output_type
+	11, // [11:13] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_metrics_aggregation_service_proto_init() }

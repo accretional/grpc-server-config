@@ -24,7 +24,8 @@ func (s *Service) Align(ctx context.Context, req *pb.AlignRequest) (*pb.AlignRes
 	if period <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "alignment_period must be > 0 for all aligners except ALIGN_NONE")
 	}
-	out, err := alignSeries(req.Input, req.Aligner, period)
+	smoothingWindow := req.PercentChangeSmoothingWindow.AsDuration()
+	out, err := alignSeries(req.Input, req.Aligner, period, smoothingWindow)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}

@@ -1,108 +1,63 @@
-# AggregationService — Comparison Testing Against GCP
+# Testing
 
-We validate our `AggregationService` implementation by fetching real metrics from GCP Cloud Monitoring and comparing our aligned output point-by-point against GCP's.
-
-## How it works
+## Unit tests
 
 ```
-cmd/compare --fetch    # pulls raw + GCP-aligned data from Cloud Monitoring REST API → testdata/
-cmd/compare --compare  # runs our aligner on the raw data, diffs against GCP's output
+go test ./...
 ```
 
-Raw and aligned data are saved as JSON in `cmd/compare/testdata/`. Both are fetched in the same run to ensure identical time windows. Tolerance: abs < 1e-9 AND rel < 1e-6 (floating-point noise only).
 
 ---
 
-## Results
+## Integration: GCP preset validation
 
-All tests run against a real GCP project (`scratchpad-427517`), 1-hour window, 60s alignment period, 13 VM series per metric.
+`scripts/validate_presets.sh` fetches live data from GCP Cloud Monitoring, runs every aligner/reducer preset through our `AggregationService`, and diffs the output point-by-point against what GCP returned.
 
-### GAUGE — `compute.googleapis.com/instance/cpu/utilization`
+### Requirements
 
-| Aligner | Points matched | Our latency (avg/series) |
-|---|---|---|
-| ALIGN_MEAN | 741/741 ✓ | 9µs |
-| ALIGN_MIN | 741/741 ✓ | 8µs |
-| ALIGN_MAX | 741/741 ✓ | 8µs |
-| ALIGN_COUNT | 741/741 ✓ | 9µs |
-| ALIGN_STDDEV | 741/741 ✓ | 10µs |
-| ALIGN_INTERPOLATE | 754/754 ✓ | 6µs |
-| ALIGN_NEXT_OLDER | 754/754 ✓ | 1µs |
+- `gcloud` CLI authenticated (`gcloud auth login`)
+- `jq` installed (`brew install jq`)
+- Access to the target GCP project
 
-### DELTA — `compute.googleapis.com/instance/disk/write_ops_count`
-
-| Aligner | Points matched | Our latency (avg/series) |
-|---|---|---|
-| ALIGN_RATE | 754/754 ✓ | 9µs |
-| ALIGN_SUM | 754/754 ✓ | 9µs |
-| ALIGN_MEAN | 754/754 ✓ | 17µs |
-| ALIGN_MIN | 754/754 ✓ | 9µs |
-| ALIGN_MAX | 754/754 ✓ | 12µs |
-| ALIGN_COUNT | 754/754 ✓ | 9µs |
-| ALIGN_STDDEV | 754/754 ✓ | 9µs |
-| ALIGN_DELTA | 754/754 ✓ | 8µs |
-
-### DELTA — `compute.googleapis.com/instance/uptime`
-
-| Aligner | Points matched | Our latency (avg/series) |
-|---|---|---|
-| ALIGN_RATE | 741/741 ✓ | 8µs |
-| ALIGN_DELTA | 741/741 ✓ | 11µs |
-
-**17 out of 17 aligner/metric combinations: exact match.**
-
----
-
-## Latency
-
-| | Latency |
-|---|---|
-| GCP Cloud Monitoring API (raw fetch) | ~900ms |
-| GCP Cloud Monitoring API (aligned fetch) | ~650ms |
-| Our `Align` call (per series, 57 raw points) | ~1–17µs |
-
-Our per-series compute is ~100,000× faster than GCP's API round trip. This comparison is not apples-to-apples: GCP's number includes network, authentication, and serving overhead. GCP's [Monarch](https://research.google/pubs/monarch-googles-planet-scale-in-memory-time-series-database/) architecture maintains aligned results incrementally at write time (standing queries), so the actual server-side computation is near-zero. Our implementation computes on demand at read time, which works well at small scale.
-
----
-
-## Bugs found and fixed
-
-**Bucket boundary convention (GAUGE).** Our initial implementation used left-closed buckets `[T, T+period)`. GCP uses right-closed `(T-period, T]`. Every value was shifted one bucket late. Fixed `bucketIdx` from `floor(T/ps)` to `ceil(T/ps) - 1`.
-
-**GCP raw DELTA data has a 1ms offset.** Raw DELTA windows arrive as `[T+1ms, T+period]` rather than `[T, T+period]`. This is GCP's internal convention to avoid endpoint ambiguity. We snap to whole seconds (`Truncate`/`Round`) on ingest so durations are exactly 60s and our rate arithmetic matches GCP's.
-
-**NEXT_OLDER boundary.** The original loop used `< bucketEnd`, which excluded raw points exactly on a boundary. Changed to `<=`. Also extended the output range by one carry-forward bucket past the last raw point, matching GCP's behaviour.
-
-**INTERPOLATE range.** GCP extrapolates one bucket beyond the last raw point using linear extrapolation from the last two points. Extended our range by `+1` and added extrapolation support to `interpolateGaugeAt`.
-
-**ALIGN_DELTA on DELTA data.** Our `alignDelta` dispatch didn't handle `ALIGN_DELTA` — it fell through to `applyStat` which errored. Added `alignDeltaRebucket`: sums raw windows proportionally into alignment buckets and returns a `DeltaTimeSeries` (matching GCP's output kind).
-
----
-
-## Not yet verified
-
-| Aligner | Reason |
-|---|---|
-| ALIGN_PERCENT_CHANGE | GCP's formula doesn't match `(v_T - v_(T-period)) / v_(T-period) * 100`. Suspected to use half-window means or data outside the query window. Needs investigation. |
-| ALIGN_COUNT_TRUE / COUNT_FALSE / FRACTION_TRUE | Requires a boolean-valued metric. No suitable metric tested yet. |
-| ALIGN_PERCENTILE_99/95/50/05 | Requires a distribution-valued metric. Not tested yet. |
-| Cross-series Reduce | `ReduceRequest` has no comparison tool yet. |
-
----
-
-## Running it yourself
+### Running
 
 ```bash
-# Fetch data (needs gcloud auth)
-go run ./cmd/compare --fetch --compare \
-  --project=<your-project> \
-  --metric=compute.googleapis.com/instance/cpu/utilization \
-  --aligner=ALIGN_MEAN
+# Full run (uses the active gcloud project)
+./scripts/validate_presets.sh
 
-# Compare from saved data (no GCP access needed)
-go run ./cmd/compare --compare \
-  --metric=compute.googleapis.com/instance/cpu/utilization \
-  --aligner=ALIGN_MEAN
+# Override project or look-back window
+./scripts/validate_presets.sh --project=my-project --hours=2
+
+# Reuse previously fetched data (skip the GCP fetch step)
+./scripts/validate_presets.sh --skip-fetch
 ```
 
-Always run `--fetch` and `--compare` together (or in the same minute) to keep raw and aligned files time-synchronized. The raw file is shared across all aligners for a given metric — fetching one aligner overwrites the raw file.
+Results are written to `scripts/results/<timestamp>/` as JSON and a `summary.json`.
+
+### Expected output
+
+```
+PRESET           SERIES  MATCHED_PTS          MISMATCHES  MAX_ABS_DIFF  AVG_ALN_µs  STATUS
+cpu                  13  741/741                       0  0                     10    PASS
+cpu-pct-change       13  611/611                       0  0                      7    PASS
+network              13  754/754                       0  0                     11    PASS
+memory                6  342/342                       0  0                      9    PASS
+uptime               13  754/754                       0  0                     10    PASS
+cpu-by-zone          13  741/741 +57/57                0  0                     10    PASS
+
+  6 presets   6 passed   0 failed
+```
+
+`MATCHED_PTS` shows `matched/comparable`. For `cpu-by-zone` the `+57/57` is the cross-series reduce result appended after the per-series count.
+
+### Boundary points excluded from comparison
+
+The `comparable` count is lower than the total GCP output points for some presets. These boundary points are intentionally excluded and do not count as mismatches.
+
+**Start boundary in `ALIGN_PERCENT_CHANGE` only.**
+The algorithm computes `((mean(T−W, T] − mean(T−W−P, T−P]) / |prev|) × 100`, where `W` is the smoothing window (default 10 min) and `P` is the alignment period (60 s). At time `T`, the previous window needs raw data going back to `T−W`. The raw API only returns data from the first available point (`rawMin`), so points where `T < rawMin + W` cannot be fairly compared (GCP's aligned endpoint uses internal pre-history that the raw API does not expose). The comparison tool skips these (typically the first 10 points per series per fetch).
+
+**End boundary for all presets.**
+The GCP aligned API runs a few minutes closer to real-time than our raw fetch window ends, producing 1–3 extra aligned points per series beyond `rawMax`. These are also excluded.
+
+Our algorithm matches GCP exactly (floating-point diff ≤ 3e-14) for every point within the comparable window.

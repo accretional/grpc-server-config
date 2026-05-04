@@ -22,42 +22,42 @@ import (
 // GCP REST API types
 // ---------------------------------------------------------------------------
 
-type GCPResponse struct {
-	TimeSeries    []GCPTimeSeries `json:"timeSeries"`
+type gcpResponse struct {
+	TimeSeries    []gcpTimeSeries `json:"timeSeries"`
 	NextPageToken string          `json:"nextPageToken"`
 }
 
-type GCPTimeSeries struct {
-	Metric     GCPMetric         `json:"metric"`
-	Resource   GCPResource       `json:"resource"`
+type gcpTimeSeries struct {
+	Metric     gcpMetric         `json:"metric"`
+	Resource   gcpResource       `json:"resource"`
 	MetricKind string            `json:"metricKind"`
 	ValueType  string            `json:"valueType"`
-	Points     []GCPPoint        `json:"points"`
+	Points     []gcpPoint        `json:"points"`
 }
 
-type GCPMetric struct {
+type gcpMetric struct {
 	Type   string            `json:"type"`
 	Labels map[string]string `json:"labels"`
 }
 
-type GCPResource struct {
+type gcpResource struct {
 	Type   string            `json:"type"`
 	Labels map[string]string `json:"labels"`
 }
 
-type GCPPoint struct {
-	Interval GCPInterval `json:"interval"`
-	Value    GCPValue    `json:"value"`
+type gcpPoint struct {
+	Interval gcpInterval `json:"interval"`
+	Value    gcpValue    `json:"value"`
 }
 
-type GCPInterval struct {
+type gcpInterval struct {
 	StartTime string `json:"startTime"`
 	EndTime   string `json:"endTime"`
 }
 
-// GCPValue covers the value types we care about.
+// gcpValue covers the value types we care about.
 // Int64 is sent as a string by the JSON API to preserve precision.
-type GCPValue struct {
+type gcpValue struct {
 	DoubleValue *float64 `json:"doubleValue,omitempty"`
 	Int64Value  *string  `json:"int64Value,omitempty"`
 	BoolValue   *bool    `json:"boolValue,omitempty"`
@@ -78,16 +78,16 @@ func gcpToken() (string, error) {
 // fetchAndSave calls ListTimeSeries (with optional aggregation) and writes
 // the full paginated response to path as JSON.
 // Pass aligner="" for raw (no aggregation).
-func fetchAndSave(project, metricType, aligner string, periodSecs int, start, end time.Time, path string) error {
+func fetchAndSave(project, metricType, aligner, crossSeriesReducer string, groupByFields []string, periodSecs int, start, end time.Time, path string) error {
 	token, err := gcpToken()
 	if err != nil {
 		return err
 	}
 
-	var all []GCPTimeSeries
+	var all []gcpTimeSeries
 	pageToken := ""
 	for {
-		resp, next, err := listTimeSeries(token, project, metricType, aligner, periodSecs, start, end, pageToken)
+		resp, next, err := listTimeSeries(token, project, metricType, aligner, crossSeriesReducer, groupByFields, periodSecs, start, end, pageToken)
 		if err != nil {
 			return err
 		}
@@ -103,7 +103,7 @@ func fetchAndSave(project, metricType, aligner string, periodSecs int, start, en
 		slices.Reverse(all[i].Points)
 	}
 
-	wrapped := GCPResponse{TimeSeries: all}
+	wrapped := gcpResponse{TimeSeries: all}
 	data, err := json.MarshalIndent(wrapped, "", "  ")
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func fetchAndSave(project, metricType, aligner string, periodSecs int, start, en
 	return os.WriteFile(path, data, 0644)
 }
 
-func listTimeSeries(token, project, metricType, aligner string, periodSecs int, start, end time.Time, pageToken string) ([]GCPTimeSeries, string, error) {
+func listTimeSeries(token, project, metricType, aligner, crossSeriesReducer string, groupByFields []string, periodSecs int, start, end time.Time, pageToken string) ([]gcpTimeSeries, string, error) {
 	base := fmt.Sprintf("https://monitoring.googleapis.com/v3/projects/%s/timeSeries", project)
 
 	params := url.Values{}
@@ -122,6 +122,15 @@ func listTimeSeries(token, project, metricType, aligner string, periodSecs int, 
 	if aligner != "" {
 		params.Set("aggregation.alignmentPeriod", fmt.Sprintf("%ds", periodSecs))
 		params.Set("aggregation.perSeriesAligner", aligner)
+	}
+	if crossSeriesReducer != "" {
+		params.Set("aggregation.crossSeriesReducer", crossSeriesReducer)
+		for _, f := range groupByFields {
+			if !strings.HasPrefix(f, "metric.") && !strings.HasPrefix(f, "resource.") {
+				f = "metric.labels." + f
+			}
+			params.Add("aggregation.groupByFields", f)
+		}
 	}
 	if pageToken != "" {
 		params.Set("pageToken", pageToken)
@@ -144,19 +153,19 @@ func listTimeSeries(token, project, metricType, aligner string, periodSecs int, 
 		return nil, "", fmt.Errorf("GCP API %d: %s", resp.StatusCode, body)
 	}
 
-	var parsed GCPResponse
+	var parsed gcpResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, "", err
 	}
 	return parsed.TimeSeries, parsed.NextPageToken, nil
 }
 
-func loadResponse(path string) (*GCPResponse, error) {
+func loadResponse(path string) (*gcpResponse, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var resp GCPResponse
+	var resp gcpResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
@@ -167,19 +176,7 @@ func loadResponse(path string) (*GCPResponse, error) {
 // Conversion: GCP → our proto types
 // ---------------------------------------------------------------------------
 
-func convertResponse(resp *GCPResponse) ([]*pb.AnyTimeSeries, error) {
-	out := make([]*pb.AnyTimeSeries, 0, len(resp.TimeSeries))
-	for i := range resp.TimeSeries {
-		s, err := convertTimeSeries(&resp.TimeSeries[i])
-		if err != nil {
-			return nil, fmt.Errorf("series %d (%v): %w", i, resp.TimeSeries[i].Metric.Labels, err)
-		}
-		out = append(out, s)
-	}
-	return out, nil
-}
-
-func convertTimeSeries(ts *GCPTimeSeries) (*pb.AnyTimeSeries, error) {
+func convertTimeSeries(ts *gcpTimeSeries) (*pb.AnyTimeSeries, error) {
 	metric := &pb.Metric{Type: ts.Metric.Type, Labels: ts.Metric.Labels}
 	resource := &pb.Resource{Name: ts.Resource.Labels["instance_id"], Type: ts.Resource.Type}
 
@@ -188,12 +185,14 @@ func convertTimeSeries(ts *GCPTimeSeries) (*pb.AnyTimeSeries, error) {
 		return convertGauge(ts, metric, resource)
 	case "DELTA":
 		return convertDelta(ts, metric, resource)
+	case "CUMULATIVE":
+		return convertCumulative(ts, metric, resource)
 	default:
 		return nil, fmt.Errorf("unsupported MetricKind %q", ts.MetricKind)
 	}
 }
 
-func convertGauge(ts *GCPTimeSeries, metric *pb.Metric, resource *pb.Resource) (*pb.AnyTimeSeries, error) {
+func convertGauge(ts *gcpTimeSeries, metric *pb.Metric, resource *pb.Resource) (*pb.AnyTimeSeries, error) {
 	s := &pb.GaugeTimeSeries{Metric: metric, Resource: resource}
 	for _, p := range ts.Points {
 		t, err := time.Parse(time.RFC3339, p.Interval.EndTime)
@@ -212,15 +211,11 @@ func convertGauge(ts *GCPTimeSeries, metric *pb.Metric, resource *pb.Resource) (
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Gauge{Gauge: s}}, nil
 }
 
-func convertDelta(ts *GCPTimeSeries, metric *pb.Metric, resource *pb.Resource) (*pb.AnyTimeSeries, error) {
+func convertDelta(ts *gcpTimeSeries, metric *pb.Metric, resource *pb.Resource) (*pb.AnyTimeSeries, error) {
 	if len(ts.Points) == 0 {
 		return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Delta{Delta: &pb.DeltaTimeSeries{Metric: metric, Resource: resource}}}, nil
 	}
 
-	// GCP DELTA points: [startTime, endTime). GCP raw data has a consistent 1ms
-	// offset at window starts (e.g. [T+1ms, T+period]). We snap to whole seconds
-	// so durations are exact and windows are contiguous, matching GCP's own arithmetic.
-	// Our DeltaTimeSeries: series-level Start + per-point Duration.
 	seriesStart, err := parseGCPTime(ts.Points[0].Interval.StartTime)
 	if err != nil {
 		return nil, err
@@ -245,13 +240,7 @@ func convertDelta(ts *GCPTimeSeries, metric *pb.Metric, resource *pb.Resource) (
 		if err != nil {
 			return nil, err
 		}
-		// Snap sub-second offsets to whole seconds. GCP raw DELTA data consistently
-		// uses [T+1ms, T+period] windows to avoid overlap; the 1ms is an implementation
-		// artefact. Snapping to [T, T+period] gives exact contiguity and integer durations
-		// that match GCP's own alignment arithmetic (which treats the window as period seconds).
-		pStartSnapped := pStart.Truncate(time.Second)
-		pEndSnapped := pEnd.Round(time.Second)
-		dur := pEndSnapped.Sub(pStartSnapped)
+		dur := pEnd.Round(time.Second).Sub(pStart.Truncate(time.Second))
 		s.Points = append(s.Points, &pb.NumericPoint{
 			Duration: durationpb.New(dur),
 			Value:    v,
@@ -260,11 +249,46 @@ func convertDelta(ts *GCPTimeSeries, metric *pb.Metric, resource *pb.Resource) (
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Delta{Delta: s}}, nil
 }
 
+func convertCumulative(ts *gcpTimeSeries, metric *pb.Metric, resource *pb.Resource) (*pb.AnyTimeSeries, error) {
+	if len(ts.Points) == 0 {
+		return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Cumulative{
+			Cumulative: &pb.CumulativeTimeSeries{Metric: metric, Resource: resource},
+		}}, nil
+	}
+	epochStart, err := parseGCPTime(ts.Points[0].Interval.StartTime)
+	if err != nil {
+		return nil, err
+	}
+	epochStartSnapped := epochStart.Truncate(time.Second)
+	s := &pb.CumulativeTimeSeries{
+		Metric:     metric,
+		Resource:   resource,
+		EpochStart: timestamppb.New(epochStartSnapped),
+	}
+	prevEnd := epochStartSnapped
+	for _, p := range ts.Points {
+		pEnd, err := parseGCPTime(p.Interval.EndTime)
+		if err != nil {
+			return nil, err
+		}
+		pEndSnapped := pEnd.Round(time.Second)
+		v, err := gcpValueToNumeric(p.Value, ts.ValueType)
+		if err != nil {
+			return nil, err
+		}
+		s.Points = append(s.Points, &pb.NumericPoint{
+			Duration: durationpb.New(pEndSnapped.Sub(prevEnd)),
+			Value:    v,
+		})
+		prevEnd = pEndSnapped
+	}
+	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Cumulative{Cumulative: s}}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Value helpers
 // ---------------------------------------------------------------------------
 
-// parseGCPTime parses an RFC3339 timestamp with optional sub-second precision.
 func parseGCPTime(s string) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
@@ -273,7 +297,7 @@ func parseGCPTime(s string) (time.Time, error) {
 	return t, err
 }
 
-func gcpValueToTyped(v GCPValue, valueType string) (*pb.TypedValue, error) {
+func gcpValueToTyped(v gcpValue, valueType string) (*pb.TypedValue, error) {
 	switch valueType {
 	case "DOUBLE":
 		if v.DoubleValue == nil {
@@ -298,7 +322,7 @@ func gcpValueToTyped(v GCPValue, valueType string) (*pb.TypedValue, error) {
 	return nil, fmt.Errorf("unsupported valueType %q", valueType)
 }
 
-func gcpValueToNumeric(v GCPValue, valueType string) (*pb.NumericValue, error) {
+func gcpValueToNumeric(v gcpValue, valueType string) (*pb.NumericValue, error) {
 	switch valueType {
 	case "DOUBLE":
 		if v.DoubleValue == nil {
@@ -317,4 +341,3 @@ func gcpValueToNumeric(v GCPValue, valueType string) (*pb.NumericValue, error) {
 	}
 	return nil, fmt.Errorf("unsupported valueType %q for numeric", valueType)
 }
-

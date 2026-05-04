@@ -11,10 +11,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func alignSeries(input *pb.AnyTimeSeries, aligner pb.Aligner, period time.Duration) (*pb.AnyTimeSeries, error) {
+const defaultPercentChangeSmoothingWindow = 10 * time.Minute
+
+func alignSeries(input *pb.AnyTimeSeries, aligner pb.Aligner, period, smoothingWindow time.Duration) (*pb.AnyTimeSeries, error) {
+	if smoothingWindow <= 0 {
+		smoothingWindow = defaultPercentChangeSmoothingWindow
+	}
 	switch s := input.Series.(type) {
 	case *pb.AnyTimeSeries_Gauge:
-		return alignGauge(s.Gauge, aligner, period)
+		return alignGauge(s.Gauge, aligner, period, smoothingWindow)
 	case *pb.AnyTimeSeries_Delta:
 		return alignDelta(s.Delta, aligner, period)
 	case *pb.AnyTimeSeries_Cumulative:
@@ -145,7 +150,7 @@ func applyStat(aligner pb.Aligner, vals []float64) (float64, error) {
 // Gauge align
 // ---------------------------------------------------------------------------
 
-func alignGauge(s *pb.GaugeTimeSeries, aligner pb.Aligner, period time.Duration) (*pb.AnyTimeSeries, error) {
+func alignGauge(s *pb.GaugeTimeSeries, aligner pb.Aligner, period, smoothingWindow time.Duration) (*pb.AnyTimeSeries, error) {
 	ps := period.Seconds()
 	switch aligner {
 	case pb.Aligner_ALIGN_COUNT_TRUE, pb.Aligner_ALIGN_COUNT_FALSE, pb.Aligner_ALIGN_FRACTION_TRUE:
@@ -155,7 +160,7 @@ func alignGauge(s *pb.GaugeTimeSeries, aligner pb.Aligner, period time.Duration)
 	case pb.Aligner_ALIGN_NEXT_OLDER:
 		return alignGaugeNextOlder(s, ps)
 	case pb.Aligner_ALIGN_PERCENT_CHANGE:
-		return alignGaugePercentChange(s, ps)
+		return alignGaugePercentChange(s, ps, smoothingWindow.Seconds())
 	case pb.Aligner_ALIGN_PERCENTILE_99:
 		return alignGaugePercentile(s, 0.99, ps)
 	case pb.Aligner_ALIGN_PERCENTILE_95:
@@ -323,32 +328,74 @@ func alignGaugeNextOlder(s *pb.GaugeTimeSeries, ps float64) (*pb.AnyTimeSeries, 
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Gauge{Gauge: out}}, nil
 }
 
-// alignGaugePercentChange computes the % change between consecutive bucket means.
-// ((current - previous) / |previous|) * 100.
-func alignGaugePercentChange(s *pb.GaugeTimeSeries, ps float64) (*pb.AnyTimeSeries, error) {
-	buckets := make(map[int64][]float64)
+// alignGaugePercentChange computes the percentage change between two consecutive
+// smoothed windows: ((current - previous) / |previous|) * 100.
+//
+// For each aligned output point at time T:
+//   - current  = mean of raw values in (T - smoothingWindow, T]
+//   - previous = mean of raw values in (T - smoothingWindow - period, T - period]
+//
+// Values < 0 are treated as missing and excluded from the window means, following
+// the Cloud Monitoring API specification. If previous == 0 the output is +Inf;
+// if both are 0 the output is 0.
+//
+// ws is the smoothing window in seconds (e.g. 600 for the default 10-minute window).
+func alignGaugePercentChange(s *pb.GaugeTimeSeries, ps, ws float64) (*pb.AnyTimeSeries, error) {
+	// Collect raw points, dropping negative values (treated as missing per spec).
+	type tv struct{ t, v float64 }
+	pts := make([]tv, 0, len(s.Points))
 	for _, p := range s.Points {
-		idx := bucketIdx(float64(p.At.GetSeconds()), ps)
 		f, err := typedToFloat(p.Value)
 		if err != nil {
 			return nil, err
 		}
-		buckets[idx] = append(buckets[idx], f)
-	}
-	keys := sortedKeys(buckets)
-	means := make([]float64, len(keys))
-	for i, idx := range keys {
-		m, _ := applyStat(pb.Aligner_ALIGN_MEAN, buckets[idx])
-		means[i] = m
-	}
-	out := &pb.GaugeTimeSeries{Metric: s.Metric, Resource: s.Resource}
-	for i := 1; i < len(keys); i++ {
-		prev, curr := means[i-1], means[i]
-		var pct float64
-		if prev != 0 {
-			pct = ((curr - prev) / math.Abs(prev)) * 100
+		if f >= 0 {
+			pts = append(pts, tv{float64(p.At.GetSeconds()), f})
 		}
-		out.Points = append(out.Points, &pb.GaugePoint{At: bucketEndTS(keys[i], ps), Value: doubleTyped(pct)})
+	}
+	sort.Slice(pts, func(i, j int) bool { return pts[i].t < pts[j].t })
+
+	// windowMean returns the mean of points strictly after lo and up to hi.
+	// Returns (0, false) when no points fall in the window.
+	windowMean := func(lo, hi float64) (float64, bool) {
+		var sum float64
+		n := 0
+		for _, p := range pts {
+			if p.t > lo && p.t <= hi {
+				sum += p.v
+				n++
+			}
+		}
+		if n == 0 {
+			return 0, false
+		}
+		return sum / float64(n), true
+	}
+
+	if len(pts) == 0 {
+		return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Gauge{Gauge: s}}, nil
+	}
+
+	firstBucket := bucketIdx(pts[0].t, ps)
+	lastBucket := bucketIdx(pts[len(pts)-1].t, ps)
+
+	out := &pb.GaugeTimeSeries{Metric: s.Metric, Resource: s.Resource}
+	for b := firstBucket; b <= lastBucket; b++ {
+		bucketEnd := float64(b+1) * ps
+		currMean, okCurr := windowMean(bucketEnd-ws, bucketEnd)
+		prevMean, okPrev := windowMean(bucketEnd-ws-ps, bucketEnd-ps)
+		if !okCurr || !okPrev {
+			continue
+		}
+		var pct float64
+		if prevMean == 0 && currMean == 0 {
+			pct = 0
+		} else if prevMean == 0 {
+			pct = math.Inf(1)
+		} else {
+			pct = ((currMean - prevMean) / math.Abs(prevMean)) * 100
+		}
+		out.Points = append(out.Points, &pb.GaugePoint{At: bucketEndTS(b, ps), Value: doubleTyped(pct)})
 	}
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Gauge{Gauge: out}}, nil
 }
@@ -520,6 +567,119 @@ func cumulativeObservations(s *pb.CumulativeTimeSeries) (times []float64, values
 	return
 }
 
+// numericSliceToFloat converts a slice of NumericValue pointers to []float64.
+func numericSliceToFloat(vals []*pb.NumericValue) ([]float64, error) {
+	out := make([]float64, len(vals))
+	for i, v := range vals {
+		f, err := numericToFloat(v)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = f
+	}
+	return out, nil
+}
+
+// cumulativeSegment is a monotonically non-decreasing sub-sequence of cumulative
+// observations. Each segment begins at epochStart (the time at which its counter
+// was last reset to 0) and contains one or more observations.
+type cumulativeSegment struct {
+	epochStart float64
+	times      []float64 // observation times, strictly increasing
+	vals       []float64 // cumulative values, non-decreasing within the segment
+}
+
+// splitCumulativeSegments partitions cumulative observations into monotonically
+// non-decreasing segments at counter reset points.
+//
+// A reset is detected when vals[i] < vals[i-1]. The reset epoch for the new
+// segment is set to times[i-1] (the last pre-reset observation). This reflects
+// GCP's convention: a counter reset is assumed to have happened at or just
+// before the first observation that shows a decreased value, so the post-reset
+// counter starts counting from 0 at that boundary.
+func splitCumulativeSegments(epochStart float64, times, vals []float64) []cumulativeSegment {
+	if len(times) == 0 {
+		return []cumulativeSegment{{epochStart: epochStart}}
+	}
+	var segs []cumulativeSegment
+	segEpoch := epochStart
+	segStart := 0
+	for i := 1; i < len(vals); i++ {
+		if vals[i] < vals[i-1] {
+			segs = append(segs, cumulativeSegment{
+				epochStart: segEpoch,
+				times:      times[segStart:i],
+				vals:       vals[segStart:i],
+			})
+			segEpoch = times[i-1] // reset assumed at the last pre-reset observation time
+			segStart = i
+		}
+	}
+	segs = append(segs, cumulativeSegment{
+		epochStart: segEpoch,
+		times:      times[segStart:],
+		vals:       vals[segStart:],
+	})
+	return segs
+}
+
+// interpolateSegAt estimates the cumulative value within a segment at tSecs.
+//   - Returns 0 for tSecs <= epochStart (counter had not yet accumulated anything).
+//   - Interpolates linearly from (epochStart, 0) to the first observation.
+//   - Interpolates linearly between consecutive observations.
+//   - Returns the last observed value for tSecs past the final observation.
+func interpolateSegAt(seg cumulativeSegment, tSecs float64) float64 {
+	if tSecs <= seg.epochStart || len(seg.times) == 0 {
+		return 0
+	}
+	if tSecs >= seg.times[len(seg.times)-1] {
+		return seg.vals[len(seg.vals)-1]
+	}
+	// Before the first observation: interpolate from (epochStart, 0).
+	if tSecs < seg.times[0] {
+		if seg.times[0] == seg.epochStart {
+			return seg.vals[0]
+		}
+		return seg.vals[0] * (tSecs - seg.epochStart) / (seg.times[0] - seg.epochStart)
+	}
+	for i := 0; i < len(seg.times)-1; i++ {
+		t0, t1 := seg.times[i], seg.times[i+1]
+		if tSecs >= t0 && tSecs <= t1 {
+			if t1 == t0 {
+				return seg.vals[i]
+			}
+			return seg.vals[i] + (seg.vals[i+1]-seg.vals[i])*(tSecs-t0)/(t1-t0)
+		}
+	}
+	return seg.vals[len(seg.vals)-1]
+}
+
+// bucketDeltaFromSegments computes the total cumulative delta for the bucket
+// [bStart, bEnd) by summing contributions from all segments. Each segment's
+// contribution is treated independently, correctly handling counter resets: the
+// accumulation from a post-reset segment starts at 0 relative to its epochStart,
+// so a reset inside a bucket does not produce a negative delta.
+func bucketDeltaFromSegments(segs []cumulativeSegment, bStart, bEnd float64) float64 {
+	var delta float64
+	for _, seg := range segs {
+		if len(seg.times) == 0 {
+			continue
+		}
+		segEnd := seg.times[len(seg.times)-1]
+		// Skip segments that don't overlap [bStart, bEnd).
+		if segEnd <= bStart || seg.epochStart >= bEnd {
+			continue
+		}
+		effectiveStart := math.Max(bStart, seg.epochStart)
+		effectiveEnd := math.Min(bEnd, segEnd)
+		if effectiveEnd <= effectiveStart {
+			continue
+		}
+		delta += interpolateSegAt(seg, effectiveEnd) - interpolateSegAt(seg, effectiveStart)
+	}
+	return delta
+}
+
 func alignCumulative(s *pb.CumulativeTimeSeries, aligner pb.Aligner, period time.Duration) (*pb.AnyTimeSeries, error) {
 	if len(s.Points) == 0 {
 		return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Cumulative{Cumulative: s}}, nil
@@ -529,52 +689,22 @@ func alignCumulative(s *pb.CumulativeTimeSeries, aligner pb.Aligner, period time
 	case pb.Aligner_ALIGN_DELTA:
 		return alignCumulativeDelta(s, ps, period)
 	case pb.Aligner_ALIGN_RATE:
-		return alignCumulativeRate(s, ps, period)
+		return alignCumulativeRate(s, ps)
 	default:
 		return nil, fmt.Errorf("aligner %v is not valid for CumulativeTimeSeries (use ALIGN_DELTA or ALIGN_RATE)", aligner)
 	}
 }
 
-// interpolateCumulativeAt estimates the cumulative value at tSecs.
-// Before the first observation it interpolates linearly from 0 at epochStart.
-// After the last observation it returns the last known value.
-func interpolateCumulativeAt(times []float64, values []*pb.NumericValue, epochStart, tSecs float64) (float64, error) {
-	if tSecs <= epochStart {
-		return 0, nil
-	}
-	if tSecs >= times[len(times)-1] {
-		return numericToFloat(values[len(values)-1])
-	}
-	// Before first point: interpolate from (epochStart, 0) to (times[0], values[0])
-	if tSecs < times[0] {
-		v0, err := numericToFloat(values[0])
-		if err != nil {
-			return 0, err
-		}
-		return v0 * (tSecs - epochStart) / (times[0] - epochStart), nil
-	}
-	for i := 0; i < len(times)-1; i++ {
-		if tSecs >= times[i] && tSecs <= times[i+1] {
-			v0, err := numericToFloat(values[i])
-			if err != nil {
-				return 0, err
-			}
-			v1, err := numericToFloat(values[i+1])
-			if err != nil {
-				return 0, err
-			}
-			if times[i+1] == times[i] {
-				return v0, nil
-			}
-			return v0 + (v1-v0)*(tSecs-times[i])/(times[i+1]-times[i]), nil
-		}
-	}
-	return 0, fmt.Errorf("interpolation failed at t=%v", tSecs)
-}
-
 func alignCumulativeDelta(s *pb.CumulativeTimeSeries, ps float64, period time.Duration) (*pb.AnyTimeSeries, error) {
 	epochStart := float64(s.EpochStart.GetSeconds())
-	times, values := cumulativeObservations(s)
+	times, numericVals := cumulativeObservations(s)
+
+	vals, err := numericSliceToFloat(numericVals)
+	if err != nil {
+		return nil, err
+	}
+
+	segs := splitCumulativeSegments(epochStart, times, vals)
 	firstBucket := bucketIdx(epochStart, ps)
 	lastBucket := bucketIdx(times[len(times)-1], ps)
 
@@ -586,25 +716,25 @@ func alignCumulativeDelta(s *pb.CumulativeTimeSeries, ps float64, period time.Du
 	for b := firstBucket; b < lastBucket; b++ {
 		bStart := float64(b) * ps
 		bEnd := float64(b+1) * ps
-		vStart, err := interpolateCumulativeAt(times, values, epochStart, bStart)
-		if err != nil {
-			return nil, err
-		}
-		vEnd, err := interpolateCumulativeAt(times, values, epochStart, bEnd)
-		if err != nil {
-			return nil, err
-		}
+		delta := bucketDeltaFromSegments(segs, bStart, bEnd)
 		out.Points = append(out.Points, &pb.NumericPoint{
 			Duration: durationpb.New(period),
-			Value:    &pb.NumericValue{Value: &pb.NumericValue_DoubleValue{DoubleValue: vEnd - vStart}},
+			Value:    &pb.NumericValue{Value: &pb.NumericValue_DoubleValue{DoubleValue: delta}},
 		})
 	}
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Delta{Delta: out}}, nil
 }
 
-func alignCumulativeRate(s *pb.CumulativeTimeSeries, ps float64, period time.Duration) (*pb.AnyTimeSeries, error) {
+func alignCumulativeRate(s *pb.CumulativeTimeSeries, ps float64) (*pb.AnyTimeSeries, error) {
 	epochStart := float64(s.EpochStart.GetSeconds())
-	times, values := cumulativeObservations(s)
+	times, numericVals := cumulativeObservations(s)
+
+	vals, err := numericSliceToFloat(numericVals)
+	if err != nil {
+		return nil, err
+	}
+
+	segs := splitCumulativeSegments(epochStart, times, vals)
 	firstBucket := bucketIdx(epochStart, ps)
 	lastBucket := bucketIdx(times[len(times)-1], ps)
 
@@ -612,17 +742,10 @@ func alignCumulativeRate(s *pb.CumulativeTimeSeries, ps float64, period time.Dur
 	for b := firstBucket; b < lastBucket; b++ {
 		bStart := float64(b) * ps
 		bEnd := float64(b+1) * ps
-		vStart, err := interpolateCumulativeAt(times, values, epochStart, bStart)
-		if err != nil {
-			return nil, err
-		}
-		vEnd, err := interpolateCumulativeAt(times, values, epochStart, bEnd)
-		if err != nil {
-			return nil, err
-		}
+		delta := bucketDeltaFromSegments(segs, bStart, bEnd)
 		out.Points = append(out.Points, &pb.GaugePoint{
 			At:    bucketEndTS(b, ps),
-			Value: doubleTyped((vEnd - vStart) / ps),
+			Value: doubleTyped(delta / ps),
 		})
 	}
 	return &pb.AnyTimeSeries{Series: &pb.AnyTimeSeries_Gauge{Gauge: out}}, nil

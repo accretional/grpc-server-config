@@ -36,6 +36,12 @@ message AlignRequest {
   // Width of each alignment bucket. Required for all aligners except
   // ALIGN_NONE. Minimum 60s.
   google.protobuf.Duration alignment_period = 3;
+
+  // Width of the moving-mean smoothing window applied before computing
+  // ALIGN_PERCENT_CHANGE. Only used when aligner == ALIGN_PERCENT_CHANGE.
+  // Defaults to 10 minutes when unset or zero, matching the behaviour
+  // described in the Cloud Monitoring API reference.
+  google.protobuf.Duration percent_change_smoothing_window = 4;
 }
 
 message AlignResponse {

@@ -1,105 +1,29 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
-	"github.com/accretional/grpc-server-config/internal/metrics/aggregation"
 	pb "github.com/accretional/grpc-server-config/pb/metrics"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// runComparison converts the raw GCP response to our format, runs our aligner,
-// then diffs the result against the GCP-aligned response point by point.
-func runComparison(
-	raw, gcpAligned *GCPResponse,
-	aligner pb.Aligner,
-	period time.Duration,
-	alignerName, metricType string,
-) {
-	fmt.Printf("\n══════════════════════════════════════════════════════\n")
-	fmt.Printf("  %s  ·  %s  ·  period=%s\n", metricType, alignerName, period)
-	fmt.Printf("══════════════════════════════════════════════════════\n\n")
+// ---------------------------------------------------------------------------
+// File path helper
+// ---------------------------------------------------------------------------
 
-	if len(raw.TimeSeries) == 0 {
-		fmt.Println("  no raw time series found")
-		return
-	}
-
-	svc := aggregation.New()
-	totalMatched, totalPoints, totalSeries := 0, 0, 0
-	var totalAlignNs int64
-
-	// Index GCP-aligned series by a label key for O(1) lookup.
-	gcpAlignedIdx := indexByLabels(gcpAligned.TimeSeries)
-
-	for _, rawTS := range raw.TimeSeries {
-		key := labelsKey(rawTS.Metric.Labels)
-		gcpTS, ok := gcpAlignedIdx[key]
-		if !ok {
-			fmt.Printf("  [skip] no aligned series for labels %v\n", rawTS.Metric.Labels)
-			continue
-		}
-
-		ourInput, err := convertTimeSeries(&rawTS)
-		if err != nil {
-			fmt.Printf("  [error] convert raw series %v: %v\n", rawTS.Metric.Labels, err)
-			continue
-		}
-
-		t0 := time.Now()
-		resp, err := svc.Align(context.Background(), &pb.AlignRequest{
-			Input:           ourInput,
-			Aligner:         aligner,
-			AlignmentPeriod: durationpb.New(period),
-		})
-		alignDur := time.Since(t0)
-		totalAlignNs += alignDur.Nanoseconds()
-
-		if err != nil {
-			fmt.Printf("  [error] align %v: %v\n", rawTS.Metric.Labels, err)
-			continue
-		}
-
-		ourPoints := extractPoints(resp.Output)
-		gcpPoints := gcpAlignedPoints(gcpTS)
-
-		matched, report := diffPoints(ourPoints, gcpPoints)
-		totalMatched += matched
-		totalPoints += len(gcpPoints)
-		totalSeries++
-
-		fmt.Printf("  Series: %v\n", rawTS.Metric.Labels)
-		fmt.Printf("    raw points:     %d\n", len(rawTS.Points))
-		fmt.Printf("    GCP output:     %d points\n", len(gcpPoints))
-		fmt.Printf("    our output:     %d points\n", len(ourPoints))
-		fmt.Printf("    matched:        %d/%d\n", matched, len(gcpPoints))
-		fmt.Printf("    align latency:  %s\n", alignDur.Round(time.Microsecond))
-		if report.maxAbsDiff > 0 || report.countMismatch > 0 {
-			fmt.Printf("    max abs diff:   %g\n", report.maxAbsDiff)
-			fmt.Printf("    max rel diff:   %g%%\n", report.maxRelDiff*100)
-			fmt.Printf("    mismatched:     %d\n", report.countMismatch)
-			for _, m := range report.examples {
-				fmt.Printf("    ↳ %s  GCP=%-18g  ours=%-18g  Δ=%g\n",
-					m.at.Format("15:04:05"), m.gcp, m.ours, m.absDiff)
-			}
-		} else {
-			fmt.Printf("    ✓ exact match\n")
-		}
-		fmt.Println()
-	}
-
-	avgAlignUs := int64(0)
-	if totalSeries > 0 {
-		avgAlignUs = totalAlignNs / int64(totalSeries) / 1000
-	}
-	fmt.Printf("──────────────────────────────────────────────────────\n")
-	fmt.Printf("  Total series: %d  |  Points matched: %d/%d\n",
-		totalSeries, totalMatched, totalPoints)
-	fmt.Printf("  Our align latency: avg=%dµs  total=%s\n\n",
-		avgAlignUs, time.Duration(totalAlignNs).Round(time.Microsecond))
+// dataPath builds a deterministic filename for a saved GCP response.
+// e.g. dataPath("data/validation", "compute.googleapis.com/instance/cpu/utilization", "raw")
+//   → "data/validation/instance_cpu_utilization_raw.json"
+func dataPath(dir, metricType, suffix string) string {
+	name := strings.NewReplacer(
+		"compute.googleapis.com/", "",
+		"monitoring.googleapis.com/", "",
+		"/", "_",
+		".", "_",
+	).Replace(metricType)
+	return fmt.Sprintf("%s/%s_%s.json", dir, name, suffix)
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +51,7 @@ func extractPoints(s *pb.AnyTimeSeries) []timedValue {
 		out := make([]timedValue, 0, len(x.Delta.Points))
 		t := x.Delta.Start.AsTime()
 		for _, p := range x.Delta.Points {
-			d := p.Duration.AsDuration()
-			t = t.Add(d)
+			t = t.Add(p.Duration.AsDuration())
 			f, err := numericValueToFloat(p.Value)
 			if err != nil {
 				continue
@@ -140,7 +63,7 @@ func extractPoints(s *pb.AnyTimeSeries) []timedValue {
 	return nil
 }
 
-func gcpAlignedPoints(ts GCPTimeSeries) []timedValue {
+func gcpAlignedPoints(ts gcpTimeSeries) []timedValue {
 	out := make([]timedValue, 0, len(ts.Points))
 	for _, p := range ts.Points {
 		t, err := time.Parse(time.RFC3339, p.Interval.EndTime)
@@ -156,7 +79,7 @@ func gcpAlignedPoints(ts GCPTimeSeries) []timedValue {
 	return out
 }
 
-func gcpValueToFloat(v GCPValue, valueType string) (float64, error) {
+func gcpValueToFloat(v gcpValue, valueType string) (float64, error) {
 	switch valueType {
 	case "DOUBLE":
 		if v.DoubleValue != nil {
@@ -216,10 +139,7 @@ type mismatchExample struct {
 	absDiff float64
 }
 
-// diffPoints matches our output to GCP's output by timestamp and computes diffs.
-// Returns the count of matched (within tolerance) points and a report.
 func diffPoints(ours, gcp []timedValue) (int, diffReport) {
-	// Index ours by Unix second for O(1) lookup.
 	ourIdx := make(map[int64]float64, len(ours))
 	for _, p := range ours {
 		ourIdx[p.at.Unix()] = p.val
@@ -260,24 +180,35 @@ func diffPoints(ours, gcp []timedValue) (int, diffReport) {
 }
 
 // ---------------------------------------------------------------------------
-// Label helpers
+// Label / series key helpers
 // ---------------------------------------------------------------------------
 
-func indexByLabels(series []GCPTimeSeries) map[string]GCPTimeSeries {
-	m := make(map[string]GCPTimeSeries, len(series))
+func indexByLabels(series []gcpTimeSeries) map[string]gcpTimeSeries {
+	m := make(map[string]gcpTimeSeries, len(series))
 	for _, ts := range series {
-		m[labelsKey(ts.Metric.Labels)] = ts
+		m[fullSeriesKey(&ts)] = ts
 	}
 	return m
 }
 
+// fullSeriesKey builds a unique lookup key from both metric and resource labels
+// to prevent false matches across instances that share metric labels.
+func fullSeriesKey(ts *gcpTimeSeries) string {
+	combined := make(map[string]string, len(ts.Metric.Labels)+len(ts.Resource.Labels))
+	for k, v := range ts.Metric.Labels {
+		combined[k] = v
+	}
+	for k, v := range ts.Resource.Labels {
+		combined["resource:"+k] = v
+	}
+	return labelsKey(combined)
+}
+
 func labelsKey(labels map[string]string) string {
-	// Stable key from all label values sorted by key.
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
 	}
-	// Simple sort inline to avoid importing sort.
 	for i := range keys {
 		for j := i + 1; j < len(keys); j++ {
 			if keys[i] > keys[j] {
@@ -290,4 +221,73 @@ func labelsKey(labels map[string]string) string {
 		parts[i] = k + "=" + labels[k]
 	}
 	return fmt.Sprintf("%v", parts)
+}
+
+// gcpReducedSeriesKey builds a lookup key for a GCP reduced series using only
+// the groupByFields values.
+func gcpReducedSeriesKey(ts *gcpTimeSeries, groupByFields []string) string {
+	labels := make(map[string]string, len(groupByFields))
+	for _, f := range groupByFields {
+		if v, ok := ts.Metric.Labels[f]; ok {
+			labels[f] = v
+		} else if v, ok := ts.Resource.Labels[f]; ok {
+			labels[f] = v
+		} else {
+			labels[f] = ""
+		}
+	}
+	return labelsKey(labels)
+}
+
+// seriesOutputLabels extracts only the group_by_fields labels from an output series.
+func seriesOutputLabels(s *pb.AnyTimeSeries, groupByFields []string) map[string]string {
+	var allLabels map[string]string
+	if g, ok := s.Series.(*pb.AnyTimeSeries_Gauge); ok && g.Gauge.Metric != nil {
+		allLabels = g.Gauge.Metric.Labels
+	}
+	out := make(map[string]string, len(groupByFields))
+	for _, f := range groupByFields {
+		out[f] = allLabels[f]
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Time range helpers
+// ---------------------------------------------------------------------------
+
+// rawTimeRange returns the earliest and latest endTime in a raw GCP series.
+func rawTimeRange(ts *gcpTimeSeries) (min, max time.Time) {
+	for _, p := range ts.Points {
+		t, err := time.Parse(time.RFC3339, p.Interval.EndTime)
+		if err != nil {
+			continue
+		}
+		if min.IsZero() || t.Before(min) {
+			min = t
+		}
+		if t.After(max) {
+			max = t
+		}
+	}
+	return
+}
+
+// trimGCPPoints filters aligned GCP points to the window our raw data can fully
+// support, eliminating boundary mismatches caused by GCP's internal pre-history.
+func trimGCPPoints(pts []timedValue, rawMin, rawMax time.Time, aligner pb.Aligner, smoothingWindow time.Duration) []timedValue {
+	if rawMin.IsZero() || rawMax.IsZero() {
+		return pts
+	}
+	from := rawMin
+	if aligner == pb.Aligner_ALIGN_PERCENT_CHANGE {
+		from = rawMin.Add(smoothingWindow)
+	}
+	out := pts[:0:0]
+	for _, p := range pts {
+		if !p.at.Before(from) && !p.at.After(rawMax) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
