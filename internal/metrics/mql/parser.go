@@ -641,7 +641,7 @@ func parseCompOp(s string) (mqlpb.ComparisonOp, error) {
 		return mqlpb.ComparisonOp_LTE, nil
 	case ">=":
 		return mqlpb.ComparisonOp_GTE, nil
-	case "=":
+	case "==", "=":
 		return mqlpb.ComparisonOp_EQ, nil
 	case "<":
 		return mqlpb.ComparisonOp_LT, nil

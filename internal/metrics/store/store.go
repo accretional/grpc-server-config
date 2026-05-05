@@ -281,7 +281,6 @@ func (s *Store) ReadTimeSeries(
 	if err != nil {
 		return nil, fmt.Errorf("store: query series: %w", err)
 	}
-	defer rows.Close()
 
 	type seriesMeta struct {
 		id           int64
@@ -294,13 +293,16 @@ func (s *Store) ReadTimeSeries(
 	for rows.Next() {
 		var m seriesMeta
 		if err := rows.Scan(&m.id, &m.labelsJSON, &m.resourceJSON, &m.kind, &m.anchorNS); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("store: scan series row: %w", err)
 		}
 		metas = append(metas, m)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("store: iterate series: %w", err)
 	}
+	rows.Close() // must close before inner queries — SQLite single-connection cannot handle concurrent cursors
 
 	var out []*pb.AnyTimeSeries
 	for _, m := range metas {

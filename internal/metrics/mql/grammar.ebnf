@@ -98,7 +98,7 @@ GroupedPred = "(", Predicate, ")" ;
 
 ComparisonExpr = LabelRef, CompOp, Value ;
 
-CompOp = "=~" | "!~" | "!=" | "<=" | ">=" | "=" | "<" | ">" ;
+CompOp = "=~" | "!~" | "!=" | "<=" | ">=" | "==" | "=" | "<" | ">" ;
 
 Value = string_literal | number_literal | "true" | "false" ;
 

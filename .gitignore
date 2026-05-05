@@ -21,6 +21,9 @@ profile.cov
 # Data and results
 data/
 
+# Temp files
+temp/
+
 # Go workspace file
 go.work
 go.work.sum

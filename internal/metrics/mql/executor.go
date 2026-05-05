@@ -55,8 +55,9 @@ func (e *Executor) Execute(ctx context.Context, plan *mqlpb.QueryPlan) (*Execute
 		return nil, fmt.Errorf("execute: plan has no fetch operation")
 	}
 
-	// Resolve time window.
-	end := time.Now().UTC().Truncate(time.Minute)
+	// Resolve time window. Do not truncate end to the minute — interceptor
+	// points are written at sub-minute precision and would be excluded otherwise.
+	end := time.Now().UTC()
 	start := end.Add(-time.Hour) // default: 1 hour
 	if plan.TimeRange != nil {
 		switch r := plan.TimeRange.Range.(type) {

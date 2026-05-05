@@ -6,24 +6,20 @@ option go_package = "github.com/accretional/grpc-server-config/pb/metrics";
 
 import "metrics/aggregation_service.proto";
 
+
+// Example: fetch gce_instance::compute.googleapis.com/instance/cpu/utilization
+//          | align mean(1m)
+//          | every 1m
+//          | group_by [resource.labels.zone], mean()
+//          | within 1h
 message QueryRequest {
-  // MQL query string.
-  // Example: fetch gce_instance::compute.googleapis.com/instance/cpu/utilization
-  //          | align mean(1m)
-  //          | every 1m
-  //          | group_by [resource.labels.zone], mean()
-  //          | within 1h
   string mql_query = 1;
 }
 
-// QueryResponse carries one aligned/reduced time series.
-// The server streams one message per output series.
 message QueryResponse {
   AnyTimeSeries series = 1;
 }
 
-// QueryService is the read endpoint for dashboards, CLIs, and alerting rules.
-// Clients send an MQL query and receive a stream of aligned, reduced time series.
 service QueryService {
   rpc Query(QueryRequest) returns (stream QueryResponse);
 }

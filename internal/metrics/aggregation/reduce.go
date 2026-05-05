@@ -107,9 +107,6 @@ func filteredMetric(m *pb.Metric, groupByFields []string) *pb.Metric {
 // at each time position. The first series in the group provides the output
 // structure (timestamps, metric type, resource).
 func reduceGroup(series []*pb.AnyTimeSeries, reducer pb.Reducer, groupByFields []string) (*pb.AnyTimeSeries, error) {
-	if len(series) == 1 {
-		return series[0], nil
-	}
 	switch x := series[0].Series.(type) {
 	case *pb.AnyTimeSeries_Gauge:
 		return reduceGaugeGroup(series, reducer, groupByFields, x.Gauge)
